@@ -1,6 +1,6 @@
 import {
   useListBots,
-  useCreateBot,
+  useStartBots,
   useStopAllBots,
   useStopBot2,
   useSpawnOffspring,
@@ -24,6 +24,7 @@ import {
   TrendingDown,
   CircleDot,
   Users,
+  X,
 } from "lucide-react";
 
 function phaseColor(phase: string) {
@@ -198,15 +199,18 @@ export default function Bots() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [symbolInput, setSymbolInput] = useState("");
+  const [watchlist, setWatchlist] = useState<string[]>([]);
 
   const { data: bots = [], isLoading } = useListBots({
     query: { refetchInterval: 5000 },
   });
 
-  const createBot = useCreateBot({
+  const startBots = useStartBots({
     mutation: {
-      onSuccess: (bot) => {
-        toast({ title: `Bot started for ${bot.symbol}` });
+      onSuccess: (result) => {
+        const count = result.started?.length ?? 0;
+        toast({ title: `${count} bot${count !== 1 ? "s" : ""} started`, description: result.started?.map((b) => b.symbol).join(", ") });
+        setWatchlist([]);
         setSymbolInput("");
         queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
       },
@@ -224,16 +228,28 @@ export default function Bots() {
     },
   });
 
+  const addSymbol = () => {
+    const syms = symbolInput.toUpperCase().split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+    const toAdd = syms.filter((s) => !watchlist.includes(s));
+    if (toAdd.length > 0) setWatchlist((prev) => [...prev, ...toAdd]);
+    setSymbolInput("");
+  };
+
+  const removeSymbol = (sym: string) => setWatchlist((prev) => prev.filter((s) => s !== sym));
+
   const handleStart = () => {
-    if (!symbolInput.trim()) {
-      toast({ title: "Symbol required", variant: "destructive" });
+    const inputSyms = symbolInput.toUpperCase().split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+    const combined = [...new Set([...watchlist, ...inputSyms])];
+    if (combined.length === 0) {
+      toast({ title: "Symbol required", description: "Enter at least one ticker symbol", variant: "destructive" });
       return;
     }
-    createBot.mutate({ data: { symbol: symbolInput.toUpperCase() } });
+    startBots.mutate({ data: { symbols: combined } });
   };
 
   const activeBots = bots.filter((b) => b.phase !== "closed");
   const inTrade = bots.filter((b) => b.phase === "in_trade");
+  const totalCount = watchlist.length + (symbolInput.trim() ? 1 : 0);
 
   return (
     <div className="space-y-6">
@@ -244,7 +260,7 @@ export default function Bots() {
             <CircleDot className={`h-3 w-3 ${activeBots.length > 0 ? "text-success animate-pulse" : "text-muted-foreground"}`} />
             <span>{activeBots.length} active</span>
             {inTrade.length > 0 && (
-              <span className="text-success font-semibold">{inTrade.length} in trade</span>
+              <span className="text-success font-semibold ml-1">{inTrade.length} in trade</span>
             )}
           </div>
           {bots.length > 0 && (
@@ -260,7 +276,6 @@ export default function Bots() {
         </div>
       </div>
 
-      {/* Summary stats */}
       {bots.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card className="bg-card">
@@ -297,7 +312,6 @@ export default function Bots() {
         </div>
       )}
 
-      {/* Launch control */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
@@ -305,30 +319,50 @@ export default function Bots() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2">
+          <div className="flex gap-2 mb-2">
             <Input
               placeholder="SPY, QQQ, AAPL ..."
               className="font-mono uppercase max-w-xs"
               value={symbolInput}
               onChange={(e) => setSymbolInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleStart()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === ",") {
+                  e.preventDefault();
+                  addSymbol();
+                }
+              }}
             />
+            <Button variant="outline" size="sm" onClick={addSymbol} disabled={!symbolInput.trim()}>
+              Add
+            </Button>
             <Button
               className="bg-success hover:bg-success/90 text-white font-bold"
               onClick={handleStart}
-              disabled={createBot.isPending}
+              disabled={startBots.isPending}
             >
-              <Play className="h-4 w-4 mr-1" /> Launch
+              <Play className="h-4 w-4 mr-1" />
+              {totalCount > 1 ? `Launch All (${totalCount})` : "Launch"}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Each bot independently tracks its own ORB breakout and evolves its parameters after {" "}
+          {watchlist.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {watchlist.map((sym) => (
+                <span key={sym} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 text-xs font-mono font-semibold">
+                  {sym}
+                  <button onClick={() => removeSymbol(sym)} className="hover:text-danger transition-colors">
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground mt-1">
+            Each bot independently tracks its own ORB breakout and evolves its parameters after{" "}
             <span className="text-foreground font-medium">N trades</span>.
           </p>
         </CardContent>
       </Card>
 
-      {/* Bot grid */}
       {isLoading ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {[1, 2, 3].map((i) => (

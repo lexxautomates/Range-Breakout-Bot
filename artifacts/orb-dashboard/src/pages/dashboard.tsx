@@ -1,6 +1,5 @@
 import {
   useGetBotStatus,
-  useStartBot,
   useStopBot,
   useGetCurrentSession,
   useGetSessionSummary,
@@ -59,19 +58,6 @@ export default function Dashboard() {
   const { data: account, isLoading: loadingAccount } = useGetAccount({ query: { refetchInterval: 10000 } });
   const { data: swarmBots = [] } = useListBots({ query: { refetchInterval: 5000 } });
 
-  const startBot = useStartBot({
-    mutation: {
-      onSuccess: () => {
-        toast({ title: "Bot started successfully" });
-        queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
-      },
-      onError: (err) => {
-        toast({ title: "Failed to start bot", description: String(err), variant: "destructive" });
-      },
-    },
-  });
-
   const startBots = useStartBots({
     mutation: {
       onSuccess: (result) => {
@@ -112,21 +98,20 @@ export default function Dashboard() {
 
   const removeSymbol = (sym: string) => setWatchlist((prev) => prev.filter((s) => s !== sym));
 
-  const handleStartAll = () => {
-    if (watchlist.length === 0) {
-      toast({ title: "No symbols", description: "Add at least one symbol to the watchlist", variant: "destructive" });
+  const handleStart = () => {
+    // Flush any pending input first
+    const inputSyms = symbolInput
+      .toUpperCase()
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const combined = [...new Set([...watchlist, ...inputSyms])];
+    if (combined.length === 0) {
+      toast({ title: "Symbol required", description: "Add at least one symbol to the watchlist", variant: "destructive" });
       return;
     }
-    startBots.mutate({ data: { symbols: watchlist } });
-  };
-
-  const handleStartSingle = () => {
-    const sym = symbolInput.trim().toUpperCase();
-    if (!sym) {
-      toast({ title: "Symbol required", description: "Please enter a symbol to trade", variant: "destructive" });
-      return;
-    }
-    startBot.mutate({ data: { symbol: sym } });
+    startBots.mutate({ data: { symbols: combined } });
+    setWatchlist([]);
     setSymbolInput("");
   };
 
@@ -326,24 +311,16 @@ export default function Dashboard() {
                     )}
                   </div>
 
-                  {watchlist.length > 1 ? (
-                    <Button
-                      className="w-full bg-success hover:bg-success/90 text-white font-bold"
-                      onClick={handleStartAll}
-                      disabled={startBots.isPending}
-                    >
-                      <Play className="mr-2 h-4 w-4" />
-                      START ALL ({watchlist.length})
-                    </Button>
-                  ) : (
-                    <Button
-                      className="w-full bg-success hover:bg-success/90 text-white font-bold"
-                      onClick={watchlist.length === 1 ? handleStartAll : handleStartSingle}
-                      disabled={startBot.isPending || startBots.isPending}
-                    >
-                      <Play className="mr-2 h-4 w-4" /> START BOT
-                    </Button>
-                  )}
+                  <Button
+                    className="w-full bg-success hover:bg-success/90 text-white font-bold"
+                    onClick={handleStart}
+                    disabled={startBots.isPending}
+                  >
+                    <Play className="mr-2 h-4 w-4" />
+                    {watchlist.length + (symbolInput.trim() ? 1 : 0) > 1
+                      ? `START ALL (${watchlist.length + (symbolInput.trim() ? 1 : 0)})`
+                      : "START BOT"}
+                  </Button>
                 </div>
               ) : (
                 <div className="space-y-4">

@@ -2,7 +2,7 @@ import {
   useGetScanResults,
   useRunScan,
   useAutoStartBots,
-  useCreateBot,
+  useStartBots,
 } from "@workspace/api-client-react";
 import type { ScanCandidate } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -115,10 +115,11 @@ export default function Scanner() {
     },
   });
 
-  const createBot = useCreateBot({
+  const startBots = useStartBots({
     mutation: {
-      onSuccess: (bot) => {
-        toast({ title: `Bot launched for ${bot.symbol}` });
+      onSuccess: (result) => {
+        const sym = result.started?.map((b) => b.symbol).join(", ");
+        toast({ title: `Bot launched for ${sym}` });
         queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
       },
       onError: (err) => toast({ title: "Error", description: String(err), variant: "destructive" }),
@@ -126,7 +127,7 @@ export default function Scanner() {
   });
 
   const handleLaunch = (symbol: string) => {
-    createBot.mutate({ data: { symbol } });
+    startBots.mutate({ data: { symbols: [symbol] } });
   };
 
   const candidates = scanData?.candidates ?? [];
@@ -210,7 +211,7 @@ export default function Scanner() {
                 key={c.symbol}
                 c={c}
                 onLaunch={handleLaunch}
-                launching={createBot.isPending}
+                launching={startBots.isPending}
               />
             ))}
           </CardContent>
@@ -241,7 +242,7 @@ export default function Scanner() {
                 key={c.symbol}
                 c={c}
                 onLaunch={handleLaunch}
-                launching={createBot.isPending}
+                launching={startBots.isPending}
               />
             ))}
           </CardContent>
