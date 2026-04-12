@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "ORB Trading Bot"
+version = "1.0.0"
+id = "artifacts/orb-dashboard"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 8081
+
+[services.development]
+run = "pnpm --filter @workspace/orb-dashboard run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/orb-dashboard", "run", "build" ]
+publicDir = "artifacts/orb-dashboard/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "8081"
+BASE_PATH = "/"

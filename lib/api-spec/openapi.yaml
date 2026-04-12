@@ -3,20 +3,30 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Opening Range Breakout (ORB) Trading Bot API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: bot
+    description: Bot control operations
+  - name: session
+    description: Current trading session
+  - name: trades
+    description: Trade history
+  - name: config
+    description: Bot configuration
+  - name: account
+    description: Alpaca account info
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +34,494 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /bot/status:
+    get:
+      operationId: getBotStatus
+      tags: [bot]
+      summary: Get current bot status
+      responses:
+        "200":
+          description: Bot status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStatus"
+
+  /bot/start:
+    post:
+      operationId: startBot
+      tags: [bot]
+      summary: Start the trading bot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartBotBody"
+      responses:
+        "200":
+          description: Bot started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStatus"
+
+  /bot/stop:
+    post:
+      operationId: stopBot
+      tags: [bot]
+      summary: Stop the trading bot
+      responses:
+        "200":
+          description: Bot stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStatus"
+
+  /session/current:
+    get:
+      operationId: getCurrentSession
+      tags: [session]
+      summary: Get current trading session state
+      responses:
+        "200":
+          description: Current session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionState"
+
+  /session/summary:
+    get:
+      operationId: getSessionSummary
+      tags: [session]
+      summary: Get today's session summary (P&L, wins, losses)
+      responses:
+        "200":
+          description: Session summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionSummary"
+
+  /trades:
+    get:
+      operationId: listTrades
+      tags: [trades]
+      summary: List all historical trades
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Trade list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TradeList"
+
+  /trades/stats:
+    get:
+      operationId: getTradeStats
+      tags: [trades]
+      summary: Aggregate stats across all trades (win rate, avg R, total P&L)
+      responses:
+        "200":
+          description: Trade stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TradeStats"
+
+  /config:
+    get:
+      operationId: getConfig
+      tags: [config]
+      summary: Get current bot configuration
+      responses:
+        "200":
+          description: Configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotConfig"
+    put:
+      operationId: updateConfig
+      tags: [config]
+      summary: Update bot configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotConfigBody"
+      responses:
+        "200":
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotConfig"
+
+  /account:
+    get:
+      operationId: getAccount
+      tags: [account]
+      summary: Get Alpaca account info (equity, cash, buying power)
+      responses:
+        "200":
+          description: Account info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountInfo"
+
+  /account/positions:
+    get:
+      operationId: getPositions
+      tags: [account]
+      summary: Get current open positions from Alpaca
+      responses:
+        "200":
+          description: Open positions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Position"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    BotStatus:
+      type: object
+      required: [running, symbol, phase, startedAt]
+      properties:
+        running:
+          type: boolean
+        symbol:
+          type: string
+        phase:
+          type: string
+          enum: [idle, waiting_open, building_range, watching, in_trade, closed]
+        startedAt:
+          type: string
+          nullable: true
+        stoppedAt:
+          type: string
+          nullable: true
+        lastUpdated:
+          type: string
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
+    StartBotBody:
+      type: object
+      required: [symbol]
+      properties:
+        symbol:
+          type: string
+
+    SessionState:
+      type: object
+      required: [symbol, phase, date]
+      properties:
+        symbol:
+          type: string
+        phase:
+          type: string
+          enum: [idle, waiting_open, building_range, watching, in_trade, closed]
+        date:
+          type: string
+        orbHigh:
+          type: number
+          nullable: true
+        orbLow:
+          type: number
+          nullable: true
+        orbWidth:
+          type: number
+          nullable: true
+        currentPrice:
+          type: number
+          nullable: true
+        volume:
+          type: number
+          nullable: true
+        averageVolume:
+          type: number
+          nullable: true
+        volumeRatio:
+          type: number
+          nullable: true
+        openRangeStart:
+          type: string
+          nullable: true
+        openRangeEnd:
+          type: string
+          nullable: true
+        breakoutDirection:
+          type: string
+          enum: [long, short, none]
+          nullable: true
+        entryPrice:
+          type: number
+          nullable: true
+        stopPrice:
+          type: number
+          nullable: true
+        targetPrice:
+          type: number
+          nullable: true
+        currentPnl:
+          type: number
+          nullable: true
+        longTradeUsed:
+          type: boolean
+        shortTradeUsed:
+          type: boolean
+
+    SessionSummary:
+      type: object
+      required: [date, totalTrades, wins, losses, totalPnl, winRate]
+      properties:
+        date:
+          type: string
+        totalTrades:
+          type: integer
+        wins:
+          type: integer
+        losses:
+          type: integer
+        totalPnl:
+          type: number
+        winRate:
+          type: number
+        bestTrade:
+          type: number
+          nullable: true
+        worstTrade:
+          type: number
+          nullable: true
+
+    Trade:
+      type: object
+      required: [id, symbol, direction, entryPrice, exitPrice, qty, pnl, outcome, entryTime, exitTime, stopPrice, targetPrice, rMultiple]
+      properties:
+        id:
+          type: integer
+        symbol:
+          type: string
+        direction:
+          type: string
+          enum: [long, short]
+        entryPrice:
+          type: number
+        exitPrice:
+          type: number
+        stopPrice:
+          type: number
+        targetPrice:
+          type: number
+        qty:
+          type: integer
+        pnl:
+          type: number
+        rMultiple:
+          type: number
+        outcome:
+          type: string
+          enum: [win, loss, breakeven]
+        entryTime:
+          type: string
+        exitTime:
+          type: string
+        exitReason:
+          type: string
+          nullable: true
+        orbHigh:
+          type: number
+          nullable: true
+        orbLow:
+          type: number
+          nullable: true
+        volumeRatio:
+          type: number
+          nullable: true
+
+    TradeList:
+      type: object
+      required: [trades, total]
+      properties:
+        trades:
+          type: array
+          items:
+            $ref: "#/components/schemas/Trade"
+        total:
+          type: integer
+
+    TradeStats:
+      type: object
+      required: [totalTrades, wins, losses, winRate, totalPnl, avgPnlPerTrade, avgRMultiple, bestTrade, worstTrade, avgWin, avgLoss, profitFactor]
+      properties:
+        totalTrades:
+          type: integer
+        wins:
+          type: integer
+        losses:
+          type: integer
+        winRate:
+          type: number
+        totalPnl:
+          type: number
+        avgPnlPerTrade:
+          type: number
+        avgRMultiple:
+          type: number
+        bestTrade:
+          type: number
+        worstTrade:
+          type: number
+        avgWin:
+          type: number
+        avgLoss:
+          type: number
+        profitFactor:
+          type: number
+
+    BotConfig:
+      type: object
+      required: [id, openingRangeMinutes, riskPercent, rewardRiskRatio, requireVolumeConfirmation, volumeMultiplier, trailingStopEnabled, trailingStopActivationR, reEntryEnabled, maxOrbWidthPercent, minOrbWidthPercent, breakoutWindowMinutes, useModerateRisk, updatedAt]
+      properties:
+        id:
+          type: integer
+        openingRangeMinutes:
+          type: integer
+          description: Minutes after open to define opening range (default 15)
+        riskPercent:
+          type: number
+          description: Max risk per trade as % of account equity (e.g. 1.0 = 1%)
+        rewardRiskRatio:
+          type: number
+          description: Target profit as multiple of risk (e.g. 2.0 = 2R)
+        requireVolumeConfirmation:
+          type: boolean
+          description: Require above-average volume for breakout confirmation
+        volumeMultiplier:
+          type: number
+          description: Volume must be X times average to confirm (e.g. 1.5)
+        trailingStopEnabled:
+          type: boolean
+          description: Enable trailing stop after 1R profit
+        trailingStopActivationR:
+          type: number
+          description: R-multiple at which trailing stop activates (default 1.0)
+        reEntryEnabled:
+          type: boolean
+          description: Allow re-entry after stopped out
+        maxOrbWidthPercent:
+          type: number
+          description: Skip trade if ORB width > this % of price
+        minOrbWidthPercent:
+          type: number
+          description: Skip trade if ORB width < this % of price
+        breakoutWindowMinutes:
+          type: integer
+          description: Minutes after ORB window closes to allow breakout entries
+        useModerateRisk:
+          type: boolean
+          description: Use midpoint as stop instead of opposite side of range
+        updatedAt:
+          type: string
+
+    BotConfigBody:
+      type: object
+      properties:
+        openingRangeMinutes:
+          type: integer
+        riskPercent:
+          type: number
+        rewardRiskRatio:
+          type: number
+        requireVolumeConfirmation:
+          type: boolean
+        volumeMultiplier:
+          type: number
+        trailingStopEnabled:
+          type: boolean
+        trailingStopActivationR:
+          type: number
+        reEntryEnabled:
+          type: boolean
+        maxOrbWidthPercent:
+          type: number
+        minOrbWidthPercent:
+          type: number
+        breakoutWindowMinutes:
+          type: integer
+        useModerateRisk:
+          type: boolean
+
+    AccountInfo:
+      type: object
+      required: [equity, cash, buyingPower, portfolioValue, daytradeCount, patternDayTrader]
+      properties:
+        equity:
+          type: number
+        cash:
+          type: number
+        buyingPower:
+          type: number
+        portfolioValue:
+          type: number
+        daytradeCount:
+          type: integer
+        patternDayTrader:
+          type: boolean
+        unrealizedPnl:
+          type: number
+          nullable: true
+        realizedPnl:
+          type: number
+          nullable: true
+
+    Position:
+      type: object
+      required: [symbol, qty, side, entryPrice, currentPrice, marketValue, unrealizedPnl, unrealizedPnlPercent]
+      properties:
+        symbol:
+          type: string
+        qty:
+          type: number
+        side:
+          type: string
+          enum: [long, short]
+        entryPrice:
+          type: number
+        currentPrice:
+          type: number
+        marketValue:
+          type: number
+        unrealizedPnl:
+          type: number
+        unrealizedPnlPercent:
+          type: number

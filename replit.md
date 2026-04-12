@@ -1,8 +1,9 @@
-# Workspace
+# ORB Trading Bot Dashboard
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+Full-stack Opening Range Breakout (ORB) trading bot connected to Alpaca paper trading API.
+pnpm workspace monorepo using TypeScript.
 
 ## Stack
 
@@ -10,11 +11,42 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Node.js version**: 24
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
-- **API framework**: Express 5
+- **API framework**: Express 5 (Fastify-style logging via pino)
 - **Database**: PostgreSQL + Drizzle ORM
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+- **API codegen**: Orval (from OpenAPI spec → React Query hooks + Zod schemas)
+- **Build**: esbuild (CJS bundle for API server)
+- **Frontend**: React + Vite + Tailwind v4 + shadcn/ui + Wouter routing
+
+## Artifacts
+
+| Artifact | Kind | Port | Path | Purpose |
+|---|---|---|---|---|
+| `artifacts/api-server` | api | 8080 | `/api` | Express REST API + ORB bot engine |
+| `artifacts/orb-dashboard` | web | 8081 | `/` | React dashboard UI |
+
+## Port Mapping (Critical)
+
+The `.replit` file maps only these ports externally:
+- `localPort: 8080` → `externalPort: 8080` (API server)
+- `localPort: 8081` → `externalPort: 80` (Dashboard/main web)
+
+**Important**: Vite must bind to `::` (IPv6 dual-stack), not `0.0.0.0`. The Replit health check uses `localhost` which resolves to `::1` first.
+
+## Key Files
+
+- `artifacts/api-server/src/lib/botEngine.ts` — ORB strategy engine loop
+- `artifacts/api-server/src/lib/botState.ts` — shared in-memory bot state
+- `artifacts/api-server/src/lib/alpaca.ts` — Alpaca client setup
+- `artifacts/api-server/src/routes/index.ts` — all routes wired
+- `lib/db/src/schema/index.ts` — trades + bot_config DB schema
+- `lib/api-spec/openapi.yaml` — full API spec
+- `artifacts/orb-dashboard/src/App.tsx` — routing + layout
+- `artifacts/orb-dashboard/src/pages/dashboard.tsx` — main dashboard
+- `artifacts/orb-dashboard/src/pages/trades.tsx` — trade history
+- `artifacts/orb-dashboard/src/pages/stats.tsx` — performance stats
+- `artifacts/orb-dashboard/src/pages/positions.tsx` — open positions (live Alpaca data)
+- `artifacts/orb-dashboard/src/pages/config.tsx` — bot config form
 
 ## Key Commands
 
@@ -22,6 +54,26 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- `pnpm --filter @workspace/api-server run dev` — run API server locally
 
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+## Environment Variables
+
+Set in `.replit` under `[userenv.shared]`:
+- `ALPACA_API_KEY` — Alpaca paper trading API key
+- `ALPACA_API_SECRET` — Alpaca paper trading secret
+- `ALPACA_BASE_URL` — `https://paper-api.alpaca.markets`
+- `ALPACA_DATA_URL` — `https://data.alpaca.markets`
+
+Secrets (managed via Replit secrets):
+- `SESSION_SECRET` — express-session secret
+
+## Bot Strategy (ORB)
+
+1. Builds opening range during first N minutes after 9:30 AM ET (default: 15 min)
+2. Detects breakout above high or below low with volume confirmation
+3. Enters long/short position with configurable risk % per trade
+4. Sets stop loss at opposite side of range (or midpoint for moderate risk mode)
+5. Sets take profit at 2R (configurable reward:risk ratio)
+6. Applies trailing stop after partial profit target hit
+7. Re-entry allowed once per session after a stopped-out trade
+8. Bot loop runs every 30 seconds via setInterval
+9. All trades recorded to PostgreSQL via Drizzle ORM
