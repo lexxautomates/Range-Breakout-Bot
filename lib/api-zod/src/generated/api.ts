@@ -591,8 +591,16 @@ export const GetScanResultsResponse = zod.object({
       relativeVolume: zod.number(),
       score: zod
         .number()
+        .describe("Combined ranking score (absGapPercent \* relativeVolume)"),
+      rank: zod
+        .number()
         .describe(
-          "Combined ranking score (absGapPercent \* relativeVolume) — higher is better",
+          "1-based rank among all candidates sorted by score descending",
+        ),
+      isTopN: zod
+        .boolean()
+        .describe(
+          "True if this candidate is within the top N slice selected for auto-start",
         ),
       recommended: zod.boolean(),
     }),
@@ -610,8 +618,16 @@ export const GetScanResultsResponse = zod.object({
       relativeVolume: zod.number(),
       score: zod
         .number()
+        .describe("Combined ranking score (absGapPercent \* relativeVolume)"),
+      rank: zod
+        .number()
         .describe(
-          "Combined ranking score (absGapPercent \* relativeVolume) — higher is better",
+          "1-based rank among all candidates sorted by score descending",
+        ),
+      isTopN: zod
+        .boolean()
+        .describe(
+          "True if this candidate is within the top N slice selected for auto-start",
         ),
       recommended: zod.boolean(),
     }),
@@ -633,8 +649,14 @@ export const GetScanCandidatesResponseItem = zod.object({
   relativeVolume: zod.number(),
   score: zod
     .number()
+    .describe("Combined ranking score (absGapPercent \* relativeVolume)"),
+  rank: zod
+    .number()
+    .describe("1-based rank among all candidates sorted by score descending"),
+  isTopN: zod
+    .boolean()
     .describe(
-      "Combined ranking score (absGapPercent \* relativeVolume) — higher is better",
+      "True if this candidate is within the top N slice selected for auto-start",
     ),
   recommended: zod.boolean(),
 });
@@ -671,8 +693,16 @@ export const RunScanResponse = zod.object({
       relativeVolume: zod.number(),
       score: zod
         .number()
+        .describe("Combined ranking score (absGapPercent \* relativeVolume)"),
+      rank: zod
+        .number()
         .describe(
-          "Combined ranking score (absGapPercent \* relativeVolume) — higher is better",
+          "1-based rank among all candidates sorted by score descending",
+        ),
+      isTopN: zod
+        .boolean()
+        .describe(
+          "True if this candidate is within the top N slice selected for auto-start",
         ),
       recommended: zod.boolean(),
     }),
@@ -690,8 +720,16 @@ export const RunScanResponse = zod.object({
       relativeVolume: zod.number(),
       score: zod
         .number()
+        .describe("Combined ranking score (absGapPercent \* relativeVolume)"),
+      rank: zod
+        .number()
         .describe(
-          "Combined ranking score (absGapPercent \* relativeVolume) — higher is better",
+          "1-based rank among all candidates sorted by score descending",
+        ),
+      isTopN: zod
+        .boolean()
+        .describe(
+          "True if this candidate is within the top N slice selected for auto-start",
         ),
       recommended: zod.boolean(),
     }),
@@ -717,8 +755,16 @@ export const AutoStartBotsResponse = zod.object({
       relativeVolume: zod.number(),
       score: zod
         .number()
+        .describe("Combined ranking score (absGapPercent \* relativeVolume)"),
+      rank: zod
+        .number()
         .describe(
-          "Combined ranking score (absGapPercent \* relativeVolume) — higher is better",
+          "1-based rank among all candidates sorted by score descending",
+        ),
+      isTopN: zod
+        .boolean()
+        .describe(
+          "True if this candidate is within the top N slice selected for auto-start",
         ),
       recommended: zod.boolean(),
     }),

@@ -11,7 +11,9 @@ export interface ScanCandidate {
   volume: number;
   avgVolume: number;
   relativeVolume: number;
-  score: number;        // combined ranking score (gap% * relativeVolume)
+  score: number;
+  rank: number;
+  isTopN: boolean;
   recommended: boolean;
 }
 
@@ -61,8 +63,7 @@ async function fetchSnapshots(
         continue;
       }
       const rawData = await resp.json();
-      // Alpaca /v2/stocks/snapshots returns either {SYMBOL: {...}} directly
-      // or {snapshots: {SYMBOL: {...}}} depending on SDK version/endpoint variant
+      // Handle both {SYMBOL:{...}} and {snapshots:{SYMBOL:{...}}} response shapes
       const data: Record<string, AlpacaSnapshot> =
         (rawData as { snapshots?: Record<string, AlpacaSnapshot> }).snapshots ??
         (rawData as Record<string, AlpacaSnapshot>);
@@ -133,12 +134,19 @@ export async function runScan(
       avgVolume,
       relativeVolume,
       score,
+      rank: 0,
+      isTopN: false,
       recommended,
     });
   }
 
-  // Sort by combined score (gap% * relVol) descending — best ORB candidates first
   candidates.sort((a, b) => b.score - a.score);
+
+  // Assign rank and top-N marker after sorting
+  candidates.forEach((c, i) => {
+    c.rank = i + 1;
+    c.isTopN = i < topN;
+  });
 
   const topNResult = candidates.slice(0, topN);
 

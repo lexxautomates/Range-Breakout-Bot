@@ -194,8 +194,12 @@ export interface ScanCandidate {
   volume: number;
   avgVolume: number;
   relativeVolume: number;
-  /** Combined ranking score (absGapPercent * relativeVolume) — higher is better */
+  /** Combined ranking score (absGapPercent * relativeVolume) */
   score: number;
+  /** 1-based rank among all candidates sorted by score descending */
+  rank: number;
+  /** True if this candidate is within the top N slice selected for auto-start */
+  isTopN: boolean;
   recommended: boolean;
 }
 

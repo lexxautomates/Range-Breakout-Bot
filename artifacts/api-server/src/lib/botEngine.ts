@@ -12,7 +12,7 @@ import { tradesTable, botConfigTable, botInstancesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
 
-// ─── Time helpers ────────────────────────────────────────────────────────────
+
 
 function getEasternTime(): Date {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -31,7 +31,7 @@ function isMarketHours(et: Date): boolean {
   return totalMins >= 9 * 60 + 30 && totalMins < 16 * 60;
 }
 
-// ─── Alpaca helpers ───────────────────────────────────────────────────────────
+
 
 export async function fetchBars(
   symbol: string,
@@ -113,7 +113,7 @@ async function closePosition(symbol: string): Promise<void> {
   }
 }
 
-// ─── DB config ────────────────────────────────────────────────────────────────
+
 
 export async function getGlobalConfig() {
   const rows = await db.select().from(botConfigTable).limit(1);
@@ -131,48 +131,58 @@ export async function ensureDefaultConfig(): Promise<void> {
   }
 }
 
-// ─── Self-evolution (per-parameter impact tracking) ─────────────────────────
-//
-// Strategy: parameter impact analysis via before/after R-multiple comparison.
-//
-// Each evolution cycle:
-// 1. Record the avgRMultiple immediately before mutation ("baseline").
-// 2. Apply the mutation (change one parameter in one direction).
-// 3. On the NEXT evolution cycle, compare current avgRMultiple to the baseline:
-//    - If avgRMultiple improved → the parameter change was beneficial → continue
-//      in the same direction (or pick a different param to explore further).
-//    - If avgRMultiple degraded → the change hurt performance → reverse direction
-//      for the same parameter to undo and search further.
-// This implements A/B testing of individual parameters over time.
-
-// Evolvable numeric parameters and their safe min/max bounds
-const EVOLVABLE_PARAMS: Array<{
+// Evolvable numeric parameters with bounds (mutations are ±10% of current value)
+const EVOLVABLE_PARAMS: ReadonlyArray<{
   key: keyof ChildBotConfig;
   min: number;
   max: number;
-  step: number;
 }> = [
-  { key: "openingRangeMinutes", min: 5, max: 60, step: 5 },
-  { key: "rewardRiskRatio", min: 1.0, max: 5.0, step: 0.25 },
-  { key: "volumeMultiplier", min: 0.5, max: 5.0, step: 0.25 },
-  { key: "maxOrbWidthPercent", min: 0.5, max: 10.0, step: 0.5 },
-  { key: "minOrbWidthPercent", min: 0.01, max: 1.0, step: 0.05 },
-  { key: "breakoutWindowMinutes", min: 30, max: 390, step: 30 },
-];
+  { key: "openingRangeMinutes", min: 5, max: 60 },
+  { key: "rewardRiskRatio", min: 1.0, max: 5.0 },
+  { key: "volumeMultiplier", min: 0.5, max: 5.0 },
+  { key: "maxOrbWidthPercent", min: 0.5, max: 10.0 },
+  { key: "minOrbWidthPercent", min: 0.01, max: 1.0 },
+  { key: "breakoutWindowMinutes", min: 30, max: 390 },
+] as const;
 
-// Per-bot mutation state for impact tracking
 interface MutationRecord {
   paramKey: string;
   direction: 1 | -1;
-  baselineAvgR: number;  // avgRMultiple BEFORE this mutation was applied
+  baselineAvgR: number;
 }
 
 const lastMutation = new Map<string, MutationRecord>();
+
+// Rank params by R-multiple variance weighted by param deviation from midpoint.
+// Returns a weighted-random pick from the top 3.
+function selectParamByVariance(recentRMultiples: number[], config: ChildBotConfig): string {
+  if (recentRMultiples.length < 4) {
+    return EVOLVABLE_PARAMS[Math.floor(Math.random() * EVOLVABLE_PARAMS.length)]!.key as string;
+  }
+  const mean = recentRMultiples.reduce((s, v) => s + v, 0) / recentRMultiples.length;
+  const variance = recentRMultiples.reduce((s, v) => s + (v - mean) ** 2, 0) / recentRMultiples.length;
+  const scores = EVOLVABLE_PARAMS.map(({ key, min, max }) => {
+    const val = config[key] as number;
+    const normalised = Math.abs(val - (min + max) / 2) / ((max - min) / 2 + 1e-9);
+    return { key: key as string, score: variance * (1 + normalised) };
+  });
+  scores.sort((a, b) => b.score - a.score);
+  const pool = scores.slice(0, 3);
+  const total = pool.reduce((s, p) => s + p.score, 0);
+  const pick = Math.random() * (total || 1);
+  let acc = 0;
+  for (const p of pool) {
+    acc += p.score;
+    if (pick <= acc) return p.key;
+  }
+  return pool[0]!.key;
+}
 
 function mutateConfig(
   botId: string,
   config: ChildBotConfig,
   currentAvgR: number,
+  recentRMultiples: number[],
 ): { config: ChildBotConfig; mutatedKey: string; direction: 1 | -1 } {
   const prev = lastMutation.get(botId);
 
@@ -180,52 +190,32 @@ function mutateConfig(
   let direction: 1 | -1;
 
   if (prev) {
-    // Compare current avgR to baseline to evaluate the previous mutation's impact
     const improved = currentAvgR > prev.baselineAvgR;
-
-    // If improved: with 75% probability keep same param/direction (exploit success);
-    //   with 25% probability explore a new parameter.
-    // If degraded: always reverse the previous direction for the same parameter
-    //   (undo what hurt performance) with 75% probability, or explore new param with 25%.
     if (improved) {
-      if (Math.random() < 0.75) {
-        paramKey = prev.paramKey;
-        direction = prev.direction; // keep going in the profitable direction
-      } else {
-        paramKey = EVOLVABLE_PARAMS[Math.floor(Math.random() * EVOLVABLE_PARAMS.length)]!.key as string;
-        direction = Math.random() > 0.5 ? 1 : -1;
-      }
+      paramKey = Math.random() < 0.75 ? prev.paramKey : selectParamByVariance(recentRMultiples, config);
+      direction = paramKey === prev.paramKey ? prev.direction : (Math.random() > 0.5 ? 1 : -1);
     } else {
-      if (Math.random() < 0.75) {
-        paramKey = prev.paramKey;
-        direction = (-prev.direction) as 1 | -1; // reverse to undo harmful change
-      } else {
-        paramKey = EVOLVABLE_PARAMS[Math.floor(Math.random() * EVOLVABLE_PARAMS.length)]!.key as string;
-        direction = Math.random() > 0.5 ? 1 : -1;
-      }
+      paramKey = Math.random() < 0.75 ? prev.paramKey : selectParamByVariance(recentRMultiples, config);
+      direction = paramKey === prev.paramKey
+        ? ((-prev.direction) as 1 | -1)
+        : (Math.random() > 0.5 ? 1 : -1);
     }
   } else {
-    // First evolution: pick a random parameter and direction
-    const param = EVOLVABLE_PARAMS[Math.floor(Math.random() * EVOLVABLE_PARAMS.length)]!;
-    paramKey = param.key as string;
+    paramKey = selectParamByVariance(recentRMultiples, config);
     direction = Math.random() > 0.5 ? 1 : -1;
   }
 
   const paramDef = EVOLVABLE_PARAMS.find((p) => p.key === paramKey)!;
   const current = config[paramKey as keyof ChildBotConfig] as number;
-  const newVal = Math.min(
-    paramDef.max,
-    Math.max(paramDef.min, current + direction * paramDef.step),
-  );
-
+  // Bounded ±10% mutation relative to current value
+  const delta = current * 0.10 * direction;
+  const newVal = Math.min(paramDef.max, Math.max(paramDef.min, current + delta));
   const isInt = paramKey.includes("Minutes");
   const finalVal = isInt ? Math.round(newVal) : parseFloat(newVal.toFixed(4));
 
-  // Record this mutation with the current avgR as the new baseline
   lastMutation.set(botId, { paramKey, direction, baselineAvgR: currentAvgR });
 
-  const newConfig = { ...config, [paramKey]: finalVal };
-  return { config: newConfig, mutatedKey: paramKey, direction };
+  return { config: { ...config, [paramKey]: finalVal }, mutatedKey: paramKey, direction };
 }
 
 async function maybeEvolve(bot: ChildBotState, evolutionThreshold: number): Promise<void> {
@@ -236,6 +226,7 @@ async function maybeEvolve(bot: ChildBotState, evolutionThreshold: number): Prom
     bot.id,
     bot.config,
     bot.avgRMultiple,
+    bot.recentRMultiples,
   );
 
   const oldVal = bot.config[mutatedKey as keyof ChildBotConfig];
@@ -273,7 +264,7 @@ async function maybeEvolve(bot: ChildBotState, evolutionThreshold: number): Prom
   }
 }
 
-// ─── Record trade ──────────────────────────────────────────────────────────────
+
 
 async function recordTrade(
   bot: ChildBotState,
@@ -342,7 +333,7 @@ async function recordTrade(
   }
 }
 
-// ─── Core bot loop ─────────────────────────────────────────────────────────────
+
 
 async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): Promise<void> {
   const session = bot.session;
@@ -578,7 +569,7 @@ async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): 
   }
 }
 
-// ─── Public API: multi-bot ────────────────────────────────────────────────────
+
 
 export async function startChildBot(
   symbol: string,
@@ -696,7 +687,7 @@ export function getChildBot(botId: string): ChildBotState | undefined {
   return registry.bots.get(botId);
 }
 
-// ─── Offspring spawning ────────────────────────────────────────────────────────
+
 
 export async function spawnOffspring(parentBotId: string): Promise<ChildBotState | null> {
   const parent = registry.bots.get(parentBotId);
@@ -706,6 +697,7 @@ export async function spawnOffspring(parentBotId: string): Promise<ChildBotState
     `${parentBotId}-offspring`,
     parent.config,
     parent.avgRMultiple,
+    parent.recentRMultiples,
   );
 
   const offspring = await startChildBot(
@@ -723,7 +715,7 @@ export async function spawnOffspring(parentBotId: string): Promise<ChildBotState
   return offspring;
 }
 
-// ─── Legacy single-bot API (backward compat) ─────────────────────────────────
+
 
 let legacyBotId: string | null = null;
 

@@ -656,7 +656,7 @@ components:
 
     ScanCandidate:
       type: object
-      required: [symbol, prevClose, open, currentPrice, gapPercent, gapDirection, volume, avgVolume, relativeVolume, score, recommended]
+      required: [symbol, prevClose, open, currentPrice, gapPercent, gapDirection, volume, avgVolume, relativeVolume, score, rank, isTopN, recommended]
       properties:
         symbol:
           type: string
@@ -679,7 +679,13 @@ components:
           type: number
         score:
           type: number
-          description: Combined ranking score (absGapPercent * relativeVolume) — higher is better
+          description: Combined ranking score (absGapPercent * relativeVolume)
+        rank:
+          type: integer
+          description: 1-based rank among all candidates sorted by score descending
+        isTopN:
+          type: boolean
+          description: True if this candidate is within the top N slice selected for auto-start
         recommended:
           type: boolean
 

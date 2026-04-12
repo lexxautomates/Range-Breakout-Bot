@@ -14,14 +14,10 @@ router.get("/scanner/results", (_req, res) => {
   res.json(result);
 });
 
-// GET /scanner/candidates — latest cached candidates list (alias for easy access)
+// GET /scanner/candidates — flat candidates list with rank + isTopN markers
 router.get("/scanner/candidates", (_req, res) => {
   const result = getLastScanResult();
-  if (!result) {
-    res.json([]);
-    return;
-  }
-  res.json(result.candidates);
+  res.json(result?.candidates ?? []);
 });
 
 // POST /scanner/run — trigger a manual scan
