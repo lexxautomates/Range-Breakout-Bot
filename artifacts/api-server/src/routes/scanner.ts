@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { runScan, getLastScanResult } from "../lib/scanner.js";
-import { runMorningScanAndStart } from "../lib/orchestrator.js";
+import { runMorningScanAndStart, forceAutoStartFromScan } from "../lib/orchestrator.js";
 
 const router = Router();
 
-// GET /scanner/results — latest cached scan results
+// GET /scanner/results — latest cached scan results (full object)
 router.get("/scanner/results", (_req, res) => {
   const result = getLastScanResult();
   if (!result) {
@@ -12,6 +12,16 @@ router.get("/scanner/results", (_req, res) => {
     return;
   }
   res.json(result);
+});
+
+// GET /scanner/candidates — latest cached candidates list (alias for easy access)
+router.get("/scanner/candidates", (_req, res) => {
+  const result = getLastScanResult();
+  if (!result) {
+    res.json([]);
+    return;
+  }
+  res.json(result.candidates);
 });
 
 // POST /scanner/run — trigger a manual scan
@@ -22,7 +32,7 @@ router.post("/scanner/run", async (req, res) => {
       Array.isArray(symbols) ? symbols : undefined,
       typeof topN === "number" ? topN : 10,
       typeof minGapPercent === "number" ? minGapPercent : 0.5,
-      typeof minRelativeVolume === "number" ? minRelativeVolume : 1.0,
+      typeof minRelativeVolume === "number" ? minRelativeVolume : 0.0,
     );
     res.json(result);
   } catch (err) {
@@ -31,9 +41,16 @@ router.post("/scanner/run", async (req, res) => {
 });
 
 // POST /scanner/auto-start — run scan and auto-start top N bots
-router.post("/scanner/auto-start", async (_req, res) => {
+// Respects guard: only starts if no bots are currently running and autoStartTopN > 0
+// Pass { force: true } to stop existing bots and force restart from scan
+router.post("/scanner/auto-start", async (req, res) => {
+  const force = req.body?.force === true;
   try {
-    await runMorningScanAndStart();
+    if (force) {
+      await forceAutoStartFromScan();
+    } else {
+      await runMorningScanAndStart();
+    }
     const result = getLastScanResult();
     res.json({ ok: true, scannedAt: result?.scannedAt, topN: result?.topN ?? [] });
   } catch (err) {

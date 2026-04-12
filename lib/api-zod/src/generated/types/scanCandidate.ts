@@ -17,5 +17,7 @@ export interface ScanCandidate {
   volume: number;
   avgVolume: number;
   relativeVolume: number;
+  /** Combined ranking score (absGapPercent * relativeVolume) — higher is better */
+  score: number;
   recommended: boolean;
 }

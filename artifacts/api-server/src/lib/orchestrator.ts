@@ -6,6 +6,7 @@ import { logger } from "./logger.js";
 let scheduledScanTimer: ReturnType<typeof setInterval> | null = null;
 
 // Run morning scan and auto-start top N bots
+// Guard: only starts if autoStartTopN > 0 AND no bots are currently running
 export async function runMorningScanAndStart(): Promise<void> {
   const config = await getGlobalConfig();
   const topN = config.autoStartTopN ?? 0;
@@ -15,25 +16,51 @@ export async function runMorningScanAndStart(): Promise<void> {
     return;
   }
 
-  logger.info({ topN }, "Running morning scan for auto-start");
+  const existing = listChildBots();
+  if (existing.length > 0) {
+    logger.info(
+      { existingCount: existing.length },
+      "Bots already running — skipping auto-start (will not disrupt active trading)",
+    );
+    return;
+  }
+
+  logger.info({ topN }, "Running morning scan for auto-start (no bots currently running)");
 
   const scanResult = await runScan(undefined, topN);
   const topSymbols = scanResult.topN.map((c) => c.symbol);
 
-  // Stop any existing bots before starting fresh
-  const existing = listChildBots();
-  if (existing.length > 0) {
-    logger.info({ count: existing.length }, "Stopping existing bots before auto-start");
-    await stopAllChildBots();
-  }
-
-  // Start one bot per top symbol
   for (const symbol of topSymbols) {
     try {
       await startChildBot(symbol);
-      logger.info({ symbol }, "Auto-started child bot from scan");
+      logger.info({ symbol }, "Auto-started child bot from morning scan");
     } catch (err) {
       logger.error({ err, symbol }, "Failed to auto-start child bot");
+    }
+  }
+}
+
+// Force auto-start: stop existing bots and start fresh from scan
+// (used only when explicitly triggered via /scanner/auto-start with force=true or directly)
+export async function forceAutoStartFromScan(): Promise<void> {
+  const config = await getGlobalConfig();
+  const topN = config.autoStartTopN <= 0 ? 5 : config.autoStartTopN;
+
+  const existing = listChildBots();
+  if (existing.length > 0) {
+    logger.info({ count: existing.length }, "Stopping existing bots for forced auto-start");
+    await stopAllChildBots();
+  }
+
+  const scanResult = await runScan(undefined, topN);
+  const topSymbols = scanResult.topN.map((c) => c.symbol);
+
+  for (const symbol of topSymbols) {
+    try {
+      await startChildBot(symbol);
+      logger.info({ symbol }, "Force auto-started child bot from scan");
+    } catch (err) {
+      logger.error({ err, symbol }, "Failed to force auto-start child bot");
     }
   }
 }
@@ -51,7 +78,6 @@ function scheduleNextScan(): void {
     const h = et.getHours();
     const m = et.getMinutes();
 
-    // 9:25 AM ET ± 30 seconds (run once in the minute 9:25)
     if (h === 9 && m === 25) {
       const lastScan = getLastScanResult();
       const today = new Date().toISOString().split("T")[0]!;

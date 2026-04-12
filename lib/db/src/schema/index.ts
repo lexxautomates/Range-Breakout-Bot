@@ -24,7 +24,7 @@ export type BotInstance = typeof botInstancesTable.$inferSelect;
 export const tradesTable = pgTable("trades", {
   id: serial("id").primaryKey(),
   symbol: text("symbol").notNull(),
-  botInstanceId: integer("bot_instance_id"),
+  botInstanceId: integer("bot_instance_id").references(() => botInstancesTable.id, { onDelete: "set null" }),
   direction: directionEnum("direction").notNull(),
   entryPrice: real("entry_price").notNull(),
   exitPrice: real("exit_price").notNull(),

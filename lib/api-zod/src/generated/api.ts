@@ -154,7 +154,7 @@ export const ListBotsResponseItem = zod.object({
 export const ListBotsResponse = zod.array(ListBotsResponseItem);
 
 /**
- * @summary Start a new child bot for a symbol
+ * @summary Start a new child bot for a single symbol
  */
 export const CreateBotBody = zod.object({
   symbol: zod.string(),
@@ -255,6 +255,110 @@ export const StopAllBotsResponse = zod.object({
 });
 
 /**
+ * @summary Batch start bots for a watchlist of symbols
+ */
+export const StartBotsBody = zod.object({
+  symbols: zod.array(zod.string()),
+  config: zod
+    .object({
+      openingRangeMinutes: zod.number().optional(),
+      riskPercent: zod.number().optional(),
+      rewardRiskRatio: zod.number().optional(),
+      requireVolumeConfirmation: zod.boolean().optional(),
+      volumeMultiplier: zod.number().optional(),
+      trailingStopEnabled: zod.boolean().optional(),
+      trailingStopActivationR: zod.number().optional(),
+      reEntryEnabled: zod.boolean().optional(),
+      maxOrbWidthPercent: zod.number().optional(),
+      minOrbWidthPercent: zod.number().optional(),
+      breakoutWindowMinutes: zod.number().optional(),
+      useModerateRisk: zod.boolean().optional(),
+    })
+    .optional(),
+});
+
+export const StartBotsResponse = zod.object({
+  started: zod.array(
+    zod.object({
+      id: zod.string(),
+      dbId: zod.number().nullish(),
+      symbol: zod.string(),
+      generation: zod.number(),
+      parentId: zod.string().nullish(),
+      config: zod.object({
+        openingRangeMinutes: zod.number(),
+        riskPercent: zod.number(),
+        rewardRiskRatio: zod.number(),
+        requireVolumeConfirmation: zod.boolean(),
+        volumeMultiplier: zod.number(),
+        trailingStopEnabled: zod.boolean(),
+        trailingStopActivationR: zod.number(),
+        reEntryEnabled: zod.boolean(),
+        maxOrbWidthPercent: zod.number(),
+        minOrbWidthPercent: zod.number(),
+        breakoutWindowMinutes: zod.number(),
+        useModerateRisk: zod.boolean(),
+      }),
+      phase: zod.enum([
+        "idle",
+        "waiting_open",
+        "building_range",
+        "watching",
+        "in_trade",
+        "closed",
+      ]),
+      session: zod.object({
+        symbol: zod.string(),
+        phase: zod.enum([
+          "idle",
+          "waiting_open",
+          "building_range",
+          "watching",
+          "in_trade",
+          "closed",
+        ]),
+        date: zod.string(),
+        orbHigh: zod.number().nullish(),
+        orbLow: zod.number().nullish(),
+        orbWidth: zod.number().nullish(),
+        currentPrice: zod.number().nullish(),
+        volume: zod.number().nullish(),
+        averageVolume: zod.number().nullish(),
+        volumeRatio: zod.number().nullish(),
+        openRangeStart: zod.string().nullish(),
+        openRangeEnd: zod.string().nullish(),
+        breakoutDirection: zod.enum(["long", "short", "none"]).nullish(),
+        entryPrice: zod.number().nullish(),
+        stopPrice: zod.number().nullish(),
+        targetPrice: zod.number().nullish(),
+        currentPnl: zod.number().nullish(),
+        longTradeUsed: zod.boolean().optional(),
+        shortTradeUsed: zod.boolean().optional(),
+        qty: zod.number().nullish(),
+      }),
+      startedAt: zod.string(),
+      stoppedAt: zod.string().nullish(),
+      lastUpdated: zod.string().nullish(),
+      error: zod.string().nullish(),
+      stats: zod.object({
+        totalTrades: zod.number(),
+        wins: zod.number(),
+        losses: zod.number(),
+        totalPnl: zod.number(),
+        avgRMultiple: zod.number(),
+        winRate: zod.number(),
+      }),
+    }),
+  ),
+  errors: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      error: zod.string(),
+    }),
+  ),
+});
+
+/**
  * @summary Get a single child bot by id
  */
 export const GetBotParams = zod.object({
@@ -341,6 +445,32 @@ export const StopBot2Params = zod.object({
 
 export const StopBot2Response = zod.object({
   ok: zod.boolean(),
+});
+
+/**
+ * @summary Get the evolved parameter config for a specific child bot
+ */
+export const GetBotConfigParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetBotConfigResponse = zod.object({
+  botId: zod.string(),
+  generation: zod.number(),
+  config: zod.object({
+    openingRangeMinutes: zod.number(),
+    riskPercent: zod.number(),
+    rewardRiskRatio: zod.number(),
+    requireVolumeConfirmation: zod.boolean(),
+    volumeMultiplier: zod.number(),
+    trailingStopEnabled: zod.boolean(),
+    trailingStopActivationR: zod.number(),
+    reEntryEnabled: zod.boolean(),
+    maxOrbWidthPercent: zod.number(),
+    minOrbWidthPercent: zod.number(),
+    breakoutWindowMinutes: zod.number(),
+    useModerateRisk: zod.boolean(),
+  }),
 });
 
 /**
@@ -437,6 +567,11 @@ export const GetScanResultsResponse = zod.object({
       volume: zod.number(),
       avgVolume: zod.number(),
       relativeVolume: zod.number(),
+      score: zod
+        .number()
+        .describe(
+          "Combined ranking score (absGapPercent \* relativeVolume) — higher is better",
+        ),
       recommended: zod.boolean(),
     }),
   ),
@@ -451,10 +586,39 @@ export const GetScanResultsResponse = zod.object({
       volume: zod.number(),
       avgVolume: zod.number(),
       relativeVolume: zod.number(),
+      score: zod
+        .number()
+        .describe(
+          "Combined ranking score (absGapPercent \* relativeVolume) — higher is better",
+        ),
       recommended: zod.boolean(),
     }),
   ),
 });
+
+/**
+ * @summary Get just the candidates list from the latest scan (flat array)
+ */
+export const GetScanCandidatesResponseItem = zod.object({
+  symbol: zod.string(),
+  prevClose: zod.number(),
+  open: zod.number(),
+  currentPrice: zod.number(),
+  gapPercent: zod.number(),
+  gapDirection: zod.enum(["up", "down"]),
+  volume: zod.number(),
+  avgVolume: zod.number(),
+  relativeVolume: zod.number(),
+  score: zod
+    .number()
+    .describe(
+      "Combined ranking score (absGapPercent \* relativeVolume) — higher is better",
+    ),
+  recommended: zod.boolean(),
+});
+export const GetScanCandidatesResponse = zod.array(
+  GetScanCandidatesResponseItem,
+);
 
 /**
  * @summary Trigger a manual gap scan
@@ -483,6 +647,11 @@ export const RunScanResponse = zod.object({
       volume: zod.number(),
       avgVolume: zod.number(),
       relativeVolume: zod.number(),
+      score: zod
+        .number()
+        .describe(
+          "Combined ranking score (absGapPercent \* relativeVolume) — higher is better",
+        ),
       recommended: zod.boolean(),
     }),
   ),
@@ -497,6 +666,11 @@ export const RunScanResponse = zod.object({
       volume: zod.number(),
       avgVolume: zod.number(),
       relativeVolume: zod.number(),
+      score: zod
+        .number()
+        .describe(
+          "Combined ranking score (absGapPercent \* relativeVolume) — higher is better",
+        ),
       recommended: zod.boolean(),
     }),
   ),
@@ -519,6 +693,11 @@ export const AutoStartBotsResponse = zod.object({
       volume: zod.number(),
       avgVolume: zod.number(),
       relativeVolume: zod.number(),
+      score: zod
+        .number()
+        .describe(
+          "Combined ranking score (absGapPercent \* relativeVolume) — higher is better",
+        ),
       recommended: zod.boolean(),
     }),
   ),

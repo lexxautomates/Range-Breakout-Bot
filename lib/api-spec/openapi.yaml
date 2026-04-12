@@ -101,7 +101,7 @@ paths:
     post:
       operationId: createBot
       tags: [bots]
-      summary: Start a new child bot for a symbol
+      summary: Start a new child bot for a single symbol
       requestBody:
         required: true
         content:
@@ -126,6 +126,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OkResponse"
+
+  /bots/start:
+    post:
+      operationId: startBots
+      tags: [bots]
+      summary: Batch start bots for a watchlist of symbols
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartBotsBody"
+      responses:
+        "200":
+          description: Batch start result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartBotsResult"
 
   /bots/{id}:
     get:
@@ -167,6 +186,27 @@ paths:
         "404":
           description: Not found
 
+  /bots/{id}/config:
+    get:
+      operationId: getBotConfig
+      tags: [bots]
+      summary: Get the evolved parameter config for a specific child bot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Bot config snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotConfigSnapshot"
+        "404":
+          description: Not found
+
   /bots/{id}/offspring:
     post:
       operationId: spawnOffspring
@@ -200,6 +240,21 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ScanResult"
+
+  /scanner/candidates:
+    get:
+      operationId: getScanCandidates
+      tags: [scanner]
+      summary: Get just the candidates list from the latest scan (flat array)
+      responses:
+        "200":
+          description: Scan candidates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScanCandidate"
 
   /scanner/run:
     post:
@@ -363,6 +418,47 @@ components:
         ok:
           type: boolean
 
+    StartBotsBody:
+      type: object
+      required: [symbols]
+      properties:
+        symbols:
+          type: array
+          items:
+            type: string
+        config:
+          $ref: "#/components/schemas/ChildBotConfigOverride"
+
+    StartBotsResult:
+      type: object
+      required: [started, errors]
+      properties:
+        started:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChildBot"
+        errors:
+          type: array
+          items:
+            type: object
+            required: [symbol, error]
+            properties:
+              symbol:
+                type: string
+              error:
+                type: string
+
+    BotConfigSnapshot:
+      type: object
+      required: [botId, generation, config]
+      properties:
+        botId:
+          type: string
+        generation:
+          type: integer
+        config:
+          $ref: "#/components/schemas/ChildBotConfig"
+
     HealthStatus:
       type: object
       required: [status]
@@ -523,7 +619,7 @@ components:
 
     ScanCandidate:
       type: object
-      required: [symbol, prevClose, open, currentPrice, gapPercent, gapDirection, volume, avgVolume, relativeVolume, recommended]
+      required: [symbol, prevClose, open, currentPrice, gapPercent, gapDirection, volume, avgVolume, relativeVolume, score, recommended]
       properties:
         symbol:
           type: string
@@ -544,6 +640,9 @@ components:
           type: number
         relativeVolume:
           type: number
+        score:
+          type: number
+          description: Combined ranking score (absGapPercent * relativeVolume) — higher is better
         recommended:
           type: boolean
 

@@ -7,6 +7,7 @@ import {
   getChildBot,
   spawnOffspring,
 } from "../lib/botEngine.js";
+import type { ChildBotState } from "../lib/botState.js";
 
 const router = Router();
 
@@ -16,7 +17,7 @@ router.get("/bots", (_req, res) => {
   res.json(bots);
 });
 
-// POST /bots — start a new child bot for a symbol
+// POST /bots — start a new child bot for a single symbol
 router.post("/bots", async (req, res) => {
   const { symbol, config } = req.body ?? {};
   if (!symbol || typeof symbol !== "string") {
@@ -29,6 +30,29 @@ router.post("/bots", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
+});
+
+// POST /bots/start — batch start bots for a watchlist of symbols
+router.post("/bots/start", async (req, res) => {
+  const { symbols, config } = req.body ?? {};
+  if (!Array.isArray(symbols) || symbols.length === 0) {
+    res.status(400).json({ error: "symbols must be a non-empty array" });
+    return;
+  }
+  const started: ReturnType<typeof serializeBot>[] = [];
+  const errors: { symbol: string; error: string }[] = [];
+
+  for (const symbol of symbols) {
+    if (typeof symbol !== "string") continue;
+    try {
+      const bot = await startChildBot(symbol, config ?? {});
+      started.push(serializeBot(bot));
+    } catch (err) {
+      errors.push({ symbol, error: String(err) });
+    }
+  }
+
+  res.json({ started, errors });
 });
 
 // DELETE /bots — stop all child bots
@@ -45,6 +69,20 @@ router.get("/bots/:id", (req, res) => {
     return;
   }
   res.json(serializeBot(bot));
+});
+
+// GET /bots/:id/config — get the per-bot config snapshot
+router.get("/bots/:id/config", (req, res) => {
+  const bot = getChildBot(req.params.id!);
+  if (!bot) {
+    res.status(404).json({ error: "Bot not found" });
+    return;
+  }
+  res.json({
+    botId: bot.id,
+    generation: bot.generation,
+    config: bot.config,
+  });
 });
 
 // DELETE /bots/:id — stop a single child bot
@@ -67,7 +105,7 @@ router.post("/bots/:id/offspring", async (req, res) => {
   res.json(serializeBot(offspring));
 });
 
-function serializeBot(bot: ReturnType<typeof getChildBot>) {
+function serializeBot(bot: ChildBotState | undefined) {
   if (!bot) return null;
   return {
     id: bot.id,

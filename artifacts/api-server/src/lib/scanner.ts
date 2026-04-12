@@ -11,6 +11,7 @@ export interface ScanCandidate {
   volume: number;
   avgVolume: number;
   relativeVolume: number;
+  score: number;        // combined ranking score (gap% * relativeVolume)
   recommended: boolean;
 }
 
@@ -28,7 +29,7 @@ const DEFAULT_UNIVERSE = [
   "MARA", "RIOT", "SOFI", "PLTR", "RBLX", "HOOD", "RIVN", "LCID", "NIO",
   "XPEV", "LI", "F", "GM", "FORD", "BAC", "JPM", "GS", "MS", "WFC",
   "C", "XLF", "XLE", "XLK", "XLV", "XLI", "XLU", "GLD", "SLV", "USO",
-  "TLT", "HYG", "VIX",
+  "TLT", "HYG",
 ];
 
 type AlpacaSnapshot = {
@@ -79,7 +80,7 @@ export async function runScan(
   symbolUniverse: string[] = DEFAULT_UNIVERSE,
   topN = 10,
   minGapPercent = 0.5,
-  minRelativeVolume = 1.0,
+  minRelativeVolume = 0.0,
 ): Promise<ScanResult> {
   logger.info({ symbolCount: symbolUniverse.length }, "Running morning scan");
 
@@ -94,7 +95,6 @@ export async function runScan(
 
     if (!prevClose || !open || prevClose === 0) continue;
 
-    // Current price: prefer latest trade, fall back to last bar close
     const ask = snap.latestQuote?.ap ?? 0;
     const bid = snap.latestQuote?.bp ?? 0;
     const currentPrice =
@@ -106,12 +106,16 @@ export async function runScan(
 
     if (absGap < minGapPercent) continue;
 
-    // Average volume: we use today's dollar volume as a proxy (real avg needs historical bars)
-    // We estimate: avgVolume ≈ prevDailyBar volume
     const avgVolume = snap.prevDailyBar?.v ?? 1;
     const relativeVolume = avgVolume > 0 ? volume / avgVolume : 0;
 
-    const recommended = absGap >= 1.0 && relativeVolume >= minRelativeVolume;
+    if (relativeVolume < minRelativeVolume) continue;
+
+    // Combined score: absolute gap % weighted by relative volume
+    // Higher gap with higher volume = better ORB candidate
+    const score = absGap * Math.max(relativeVolume, 0.1);
+
+    const recommended = absGap >= 1.0 && relativeVolume >= 1.2;
 
     candidates.push({
       symbol,
@@ -123,12 +127,13 @@ export async function runScan(
       volume,
       avgVolume,
       relativeVolume,
+      score,
       recommended,
     });
   }
 
-  // Sort by absolute gap % descending
-  candidates.sort((a, b) => Math.abs(b.gapPercent) - Math.abs(a.gapPercent));
+  // Sort by combined score (gap% * relVol) descending — best ORB candidates first
+  candidates.sort((a, b) => b.score - a.score);
 
   const topNResult = candidates.slice(0, topN);
 

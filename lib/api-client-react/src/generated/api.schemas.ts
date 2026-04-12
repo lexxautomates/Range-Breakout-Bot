@@ -9,36 +9,6 @@ export interface OkResponse {
   ok: boolean;
 }
 
-export interface HealthStatus {
-  status: string;
-}
-
-export type BotStatusPhase =
-  (typeof BotStatusPhase)[keyof typeof BotStatusPhase];
-
-export const BotStatusPhase = {
-  idle: "idle",
-  waiting_open: "waiting_open",
-  building_range: "building_range",
-  watching: "watching",
-  in_trade: "in_trade",
-  closed: "closed",
-} as const;
-
-export interface BotStatus {
-  running: boolean;
-  symbol: string;
-  phase: BotStatusPhase;
-  startedAt: string | null;
-  stoppedAt?: string | null;
-  lastUpdated?: string | null;
-  error?: string | null;
-}
-
-export interface StartBotBody {
-  symbol: string;
-}
-
 export interface ChildBotConfigOverride {
   openingRangeMinutes?: number;
   riskPercent?: number;
@@ -54,10 +24,15 @@ export interface ChildBotConfigOverride {
   useModerateRisk?: boolean;
 }
 
-export interface CreateBotBody {
-  symbol: string;
+export interface StartBotsBody {
+  symbols: string[];
   config?: ChildBotConfigOverride;
 }
+
+export type StartBotsResultErrorsItem = {
+  symbol: string;
+  error: string;
+};
 
 export interface ChildBotConfig {
   openingRangeMinutes: number;
@@ -72,15 +47,6 @@ export interface ChildBotConfig {
   minOrbWidthPercent: number;
   breakoutWindowMinutes: number;
   useModerateRisk: boolean;
-}
-
-export interface BotStats {
-  totalTrades: number;
-  wins: number;
-  losses: number;
-  totalPnl: number;
-  avgRMultiple: number;
-  winRate: number;
 }
 
 export type ChildBotPhase = (typeof ChildBotPhase)[keyof typeof ChildBotPhase];
@@ -139,6 +105,15 @@ export interface SessionState {
   qty?: number | null;
 }
 
+export interface BotStats {
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  totalPnl: number;
+  avgRMultiple: number;
+  winRate: number;
+}
+
 export interface ChildBot {
   id: string;
   dbId?: number | null;
@@ -153,6 +128,52 @@ export interface ChildBot {
   lastUpdated?: string | null;
   error?: string | null;
   stats: BotStats;
+}
+
+export interface StartBotsResult {
+  started: ChildBot[];
+  errors: StartBotsResultErrorsItem[];
+}
+
+export interface BotConfigSnapshot {
+  botId: string;
+  generation: number;
+  config: ChildBotConfig;
+}
+
+export interface HealthStatus {
+  status: string;
+}
+
+export type BotStatusPhase =
+  (typeof BotStatusPhase)[keyof typeof BotStatusPhase];
+
+export const BotStatusPhase = {
+  idle: "idle",
+  waiting_open: "waiting_open",
+  building_range: "building_range",
+  watching: "watching",
+  in_trade: "in_trade",
+  closed: "closed",
+} as const;
+
+export interface BotStatus {
+  running: boolean;
+  symbol: string;
+  phase: BotStatusPhase;
+  startedAt: string | null;
+  stoppedAt?: string | null;
+  lastUpdated?: string | null;
+  error?: string | null;
+}
+
+export interface StartBotBody {
+  symbol: string;
+}
+
+export interface CreateBotBody {
+  symbol: string;
+  config?: ChildBotConfigOverride;
 }
 
 export type ScanCandidateGapDirection =
@@ -173,6 +194,8 @@ export interface ScanCandidate {
   volume: number;
   avgVolume: number;
   relativeVolume: number;
+  /** Combined ranking score (absGapPercent * relativeVolume) — higher is better */
+  score: number;
   recommended: boolean;
 }
 

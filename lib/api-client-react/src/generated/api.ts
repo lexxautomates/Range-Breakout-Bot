@@ -21,6 +21,7 @@ import type {
   AutoStartResult,
   BotConfig,
   BotConfigBody,
+  BotConfigSnapshot,
   BotStatus,
   ChildBot,
   CreateBotBody,
@@ -28,11 +29,14 @@ import type {
   ListTradesParams,
   OkResponse,
   Position,
+  ScanCandidate,
   ScanRequest,
   ScanResult,
   SessionState,
   SessionSummary,
   StartBotBody,
+  StartBotsBody,
+  StartBotsResult,
   TradeList,
   TradeStats,
 } from "./api.schemas";
@@ -427,7 +431,7 @@ export function useListBots<
 }
 
 /**
- * @summary Start a new child bot for a symbol
+ * @summary Start a new child bot for a single symbol
  */
 export const getCreateBotUrl = () => {
   return `/api/bots`;
@@ -490,7 +494,7 @@ export type CreateBotMutationBody = BodyType<CreateBotBody>;
 export type CreateBotMutationError = ErrorType<unknown>;
 
 /**
- * @summary Start a new child bot for a symbol
+ * @summary Start a new child bot for a single symbol
  */
 export const useCreateBot = <
   TError = ErrorType<unknown>,
@@ -591,6 +595,92 @@ export const useStopAllBots = <
   TContext
 > => {
   return useMutation(getStopAllBotsMutationOptions(options));
+};
+
+/**
+ * @summary Batch start bots for a watchlist of symbols
+ */
+export const getStartBotsUrl = () => {
+  return `/api/bots/start`;
+};
+
+export const startBots = async (
+  startBotsBody: StartBotsBody,
+  options?: RequestInit,
+): Promise<StartBotsResult> => {
+  return customFetch<StartBotsResult>(getStartBotsUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(startBotsBody),
+  });
+};
+
+export const getStartBotsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startBots>>,
+    TError,
+    { data: BodyType<StartBotsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof startBots>>,
+  TError,
+  { data: BodyType<StartBotsBody> },
+  TContext
+> => {
+  const mutationKey = ["startBots"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof startBots>>,
+    { data: BodyType<StartBotsBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return startBots(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StartBotsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof startBots>>
+>;
+export type StartBotsMutationBody = BodyType<StartBotsBody>;
+export type StartBotsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Batch start bots for a watchlist of symbols
+ */
+export const useStartBots = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startBots>>,
+    TError,
+    { data: BodyType<StartBotsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof startBots>>,
+  TError,
+  { data: BodyType<StartBotsBody> },
+  TContext
+> => {
+  return useMutation(getStartBotsMutationOptions(options));
 };
 
 /**
@@ -753,6 +843,93 @@ export const useStopBot2 = <
 };
 
 /**
+ * @summary Get the evolved parameter config for a specific child bot
+ */
+export const getGetBotConfigUrl = (id: string) => {
+  return `/api/bots/${id}/config`;
+};
+
+export const getBotConfig = async (
+  id: string,
+  options?: RequestInit,
+): Promise<BotConfigSnapshot> => {
+  return customFetch<BotConfigSnapshot>(getGetBotConfigUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetBotConfigQueryKey = (id: string) => {
+  return [`/api/bots/${id}/config`] as const;
+};
+
+export const getGetBotConfigQueryOptions = <
+  TData = Awaited<ReturnType<typeof getBotConfig>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getBotConfig>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetBotConfigQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getBotConfig>>> = ({
+    signal,
+  }) => getBotConfig(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getBotConfig>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetBotConfigQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getBotConfig>>
+>;
+export type GetBotConfigQueryError = ErrorType<void>;
+
+/**
+ * @summary Get the evolved parameter config for a specific child bot
+ */
+
+export function useGetBotConfig<
+  TData = Awaited<ReturnType<typeof getBotConfig>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getBotConfig>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBotConfigQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
  * @summary Spawn an evolved offspring of a child bot
  */
 export const getSpawnOffspringUrl = (id: string) => {
@@ -903,6 +1080,81 @@ export function useGetScanResults<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetScanResultsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get just the candidates list from the latest scan (flat array)
+ */
+export const getGetScanCandidatesUrl = () => {
+  return `/api/scanner/candidates`;
+};
+
+export const getScanCandidates = async (
+  options?: RequestInit,
+): Promise<ScanCandidate[]> => {
+  return customFetch<ScanCandidate[]>(getGetScanCandidatesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetScanCandidatesQueryKey = () => {
+  return [`/api/scanner/candidates`] as const;
+};
+
+export const getGetScanCandidatesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getScanCandidates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScanCandidates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetScanCandidatesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getScanCandidates>>
+  > = ({ signal }) => getScanCandidates({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getScanCandidates>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetScanCandidatesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getScanCandidates>>
+>;
+export type GetScanCandidatesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get just the candidates list from the latest scan (flat array)
+ */
+
+export function useGetScanCandidates<
+  TData = Awaited<ReturnType<typeof getScanCandidates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScanCandidates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetScanCandidatesQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

@@ -131,54 +131,125 @@ export async function ensureDefaultConfig(): Promise<void> {
   }
 }
 
-// ─── Self-evolution ────────────────────────────────────────────────────────────
+// ─── Self-evolution (performance-based directional mutation) ───────────────────
+//
+// Strategy: track the R-multiple trend over a rolling window.
+// - Compute the slope of recent R-multiples using linear regression.
+// - If trend is positive (improving), keep the last mutation direction for the
+//   same parameter (double-down on what's working).
+// - If trend is negative (declining), reverse the last mutation direction
+//   (undo the change that hurt performance, or try the opposite).
+// - For the first evolution cycle (no history), pick a random parameter and direction.
 
 // Evolvable numeric parameters and their safe min/max bounds
 const EVOLVABLE_PARAMS: Array<{
   key: keyof ChildBotConfig;
   min: number;
   max: number;
+  step: number;
 }> = [
-  { key: "openingRangeMinutes", min: 5, max: 60 },
-  { key: "rewardRiskRatio", min: 1.0, max: 5.0 },
-  { key: "volumeMultiplier", min: 0.5, max: 5.0 },
-  { key: "maxOrbWidthPercent", min: 0.5, max: 10.0 },
-  { key: "minOrbWidthPercent", min: 0.01, max: 1.0 },
-  { key: "breakoutWindowMinutes", min: 30, max: 390 },
+  { key: "openingRangeMinutes", min: 5, max: 60, step: 5 },
+  { key: "rewardRiskRatio", min: 1.0, max: 5.0, step: 0.25 },
+  { key: "volumeMultiplier", min: 0.5, max: 5.0, step: 0.25 },
+  { key: "maxOrbWidthPercent", min: 0.5, max: 10.0, step: 0.5 },
+  { key: "minOrbWidthPercent", min: 0.01, max: 1.0, step: 0.05 },
+  { key: "breakoutWindowMinutes", min: 30, max: 390, step: 30 },
 ];
 
-function mutateConfig(config: ChildBotConfig): { config: ChildBotConfig; mutatedKey: string } {
-  // Pick a random evolvable parameter
-  const param = EVOLVABLE_PARAMS[Math.floor(Math.random() * EVOLVABLE_PARAMS.length)]!;
-  const key = param.key as string;
-  const current = config[param.key] as number;
+// Track last mutation per bot for directional learning
+const lastMutation = new Map<string, { paramKey: string; direction: 1 | -1 }>();
 
-  // Mutate by +/- 10%
-  const direction = Math.random() > 0.5 ? 1 : -1;
-  const delta = current * 0.10 * direction;
-  const newVal = Math.min(param.max, Math.max(param.min, current + delta));
+function rMultipleSlope(values: number[]): number {
+  if (values.length < 2) return 0;
+  const n = values.length;
+  const meanX = (n - 1) / 2;
+  const meanY = values.reduce((a, b) => a + b, 0) / n;
+  let num = 0;
+  let den = 0;
+  for (let i = 0; i < n; i++) {
+    num += (i - meanX) * (values[i]! - meanY);
+    den += (i - meanX) ** 2;
+  }
+  return den === 0 ? 0 : num / den;
+}
 
-  const newConfig = { ...config, [key]: key.includes("Minutes") ? Math.round(newVal) : parseFloat(newVal.toFixed(4)) };
-  return { config: newConfig, mutatedKey: key };
+function mutateConfig(
+  botId: string,
+  config: ChildBotConfig,
+  recentRMultiples: number[],
+): { config: ChildBotConfig; mutatedKey: string; direction: 1 | -1 } {
+  const prev = lastMutation.get(botId);
+  const slope = rMultipleSlope(recentRMultiples);
+
+  let paramKey: string;
+  let direction: 1 | -1;
+
+  if (prev) {
+    // Performance-based directional mutation:
+    // If R-multiple trend is improving (slope > 0), keep previous direction for the same param.
+    // If declining (slope <= 0), reverse direction to undo the change or try opposite.
+    direction = slope > 0 ? prev.direction : ((-prev.direction) as 1 | -1);
+    paramKey = prev.paramKey;
+
+    // Occasionally (25% chance) explore a different parameter even if improving
+    if (Math.random() < 0.25) {
+      paramKey = EVOLVABLE_PARAMS[Math.floor(Math.random() * EVOLVABLE_PARAMS.length)]!.key as string;
+      direction = Math.random() > 0.5 ? 1 : -1;
+    }
+  } else {
+    // First evolution: random parameter and direction
+    const param = EVOLVABLE_PARAMS[Math.floor(Math.random() * EVOLVABLE_PARAMS.length)]!;
+    paramKey = param.key as string;
+    direction = Math.random() > 0.5 ? 1 : -1;
+  }
+
+  const paramDef = EVOLVABLE_PARAMS.find((p) => p.key === paramKey)!;
+  const current = config[paramKey as keyof ChildBotConfig] as number;
+  const newVal = Math.min(
+    paramDef.max,
+    Math.max(paramDef.min, current + direction * paramDef.step),
+  );
+
+  const isInt = paramKey.includes("Minutes") || paramKey === "breakoutWindowMinutes";
+  const finalVal = isInt ? Math.round(newVal) : parseFloat(newVal.toFixed(4));
+
+  lastMutation.set(botId, { paramKey, direction });
+
+  const newConfig = { ...config, [paramKey]: finalVal };
+  return { config: newConfig, mutatedKey: paramKey, direction };
 }
 
 async function maybeEvolve(bot: ChildBotState, evolutionThreshold: number): Promise<void> {
   if (bot.totalTrades < evolutionThreshold) return;
-  if (bot.totalTrades % evolutionThreshold !== 0) return; // only at threshold boundaries
+  if (bot.totalTrades % evolutionThreshold !== 0) return;
 
-  const { config: newConfig, mutatedKey } = mutateConfig(bot.config);
+  const { config: newConfig, mutatedKey, direction } = mutateConfig(
+    bot.id,
+    bot.config,
+    bot.recentRMultiples,
+  );
+
   const oldVal = bot.config[mutatedKey as keyof ChildBotConfig];
   const newVal = newConfig[mutatedKey as keyof ChildBotConfig];
+  const slope = rMultipleSlope(bot.recentRMultiples);
 
   bot.config = newConfig;
   bot.generation += 1;
 
   logger.info(
-    { botId: bot.id, symbol: bot.symbol, generation: bot.generation, mutatedKey, oldVal, newVal },
-    "Bot evolved — parameter mutated",
+    {
+      botId: bot.id,
+      symbol: bot.symbol,
+      generation: bot.generation,
+      mutatedKey,
+      oldVal,
+      newVal,
+      direction,
+      rSlope: slope.toFixed(4),
+    },
+    "Bot evolved — directional parameter mutation",
   );
 
-  // Persist updated config snapshot and generation to DB
   if (bot.dbId) {
     await db
       .update(botInstancesTable)
@@ -251,10 +322,8 @@ async function recordTrade(
   bot.avgRMultiple =
     bot.recentRMultiples.reduce((a, b) => a + b, 0) / bot.recentRMultiples.length;
 
-  // Maybe evolve
   await maybeEvolve(bot, evolutionThreshold);
 
-  // Persist perf stats
   if (bot.dbId) {
     await db
       .update(botInstancesTable)
@@ -276,7 +345,6 @@ async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): 
 
     if (!inMarket) {
       if (minsAfterOpen >= 0) {
-        // Market closed — wrap up open trade
         if (session.phase === "in_trade") {
           await closePosition(session.symbol);
           if (session.currentPrice && session.entryPrice && session.qty) {
@@ -305,20 +373,15 @@ async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): 
       return;
     }
 
-    // Get latest price
     const price = await fetchLatestQuote(session.symbol);
     if (price) session.currentPrice = price;
 
-    // --- PHASE: waiting_open ---
     if (session.phase === "waiting_open") {
       if (minsAfterOpen >= 0) {
         session.phase = "building_range";
         session.openRangeStart = et.toISOString();
       }
-    }
-
-    // --- PHASE: building_range ---
-    else if (session.phase === "building_range") {
+    } else if (session.phase === "building_range") {
       if (minsAfterOpen < config.openingRangeMinutes) {
         const bars = await fetchBars(session.symbol, "1Min", config.openingRangeMinutes + 2);
         const todayBars = bars.filter((b) => {
@@ -343,10 +406,7 @@ async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): 
           const orbWidth = session.orbHigh - session.orbLow;
           const widthPct = (orbWidth / price) * 100;
           if (widthPct > config.maxOrbWidthPercent || widthPct < config.minOrbWidthPercent) {
-            logger.info(
-              { botId: bot.id, widthPct, symbol: bot.symbol },
-              "ORB width filter — skipping session",
-            );
+            logger.info({ botId: bot.id, widthPct, symbol: bot.symbol }, "ORB width filter — skipping");
             session.phase = "closed";
           } else {
             session.phase = "watching";
@@ -355,10 +415,7 @@ async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): 
           session.phase = "watching";
         }
       }
-    }
-
-    // --- PHASE: watching ---
-    else if (session.phase === "watching") {
+    } else if (session.phase === "watching") {
       const breakoutDeadline = config.openingRangeMinutes + config.breakoutWindowMinutes;
       if (minsAfterOpen > breakoutDeadline) {
         session.phase = "closed";
@@ -429,17 +486,8 @@ async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): 
           logger.info({ botId: bot.id, symbol: bot.symbol, price, stopPrice, targetPrice, qty }, "Short breakout entry");
         }
       }
-    }
-
-    // --- PHASE: in_trade ---
-    else if (session.phase === "in_trade") {
-      if (
-        !price ||
-        !session.entryPrice ||
-        !session.stopPrice ||
-        !session.targetPrice ||
-        !session.qty
-      )
+    } else if (session.phase === "in_trade") {
+      if (!price || !session.entryPrice || !session.stopPrice || !session.targetPrice || !session.qty)
         return;
 
       const direction = session.breakoutDirection as "long" | "short";
@@ -457,8 +505,8 @@ async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): 
       if (direction === "long" && price <= session.stopPrice) exitReason = "stop_loss";
       else if (direction === "short" && price >= session.stopPrice) exitReason = "stop_loss";
 
-      if (direction === "long" && price >= session.targetPrice) exitReason = "take_profit";
-      else if (direction === "short" && price <= session.targetPrice) exitReason = "take_profit";
+      if (!exitReason && direction === "long" && price >= session.targetPrice) exitReason = "take_profit";
+      else if (!exitReason && direction === "short" && price <= session.targetPrice) exitReason = "take_profit";
 
       if (!exitReason && session.orbHigh && session.orbLow) {
         if (price < session.orbHigh && price > session.orbLow) {
@@ -466,7 +514,6 @@ async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): 
         }
       }
 
-      // Trailing stop
       if (!exitReason && config.trailingStopEnabled && currentR >= config.trailingStopActivationR) {
         const trailStop =
           direction === "long" ? price - riskPerShare : price + riskPerShare;
@@ -496,10 +543,7 @@ async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): 
           },
           evolutionThreshold,
         );
-        logger.info(
-          { botId: bot.id, symbol: bot.symbol, exitReason, pnl: session.currentPnl },
-          "Trade exited",
-        );
+        logger.info({ botId: bot.id, symbol: bot.symbol, exitReason, pnl: session.currentPnl }, "Trade exited");
 
         if (!session.longTradeUsed || !session.shortTradeUsed) {
           session.phase = "watching";
@@ -530,6 +574,8 @@ export async function startChildBot(
   symbol: string,
   configOverride?: Partial<ChildBotConfig>,
   parentId?: string,
+  parentDbId?: number | null,
+  parentGeneration?: number,
 ): Promise<ChildBotState> {
   const sym = symbol.toUpperCase();
   const globalConfig = await getGlobalConfig();
@@ -550,22 +596,15 @@ export async function startChildBot(
   };
 
   const config: ChildBotConfig = { ...baseConfig, ...configOverride };
+  const generation = parentGeneration != null ? parentGeneration + 1 : 0;
   const botId = `${sym}-${registry.nextId++}`;
 
-  // Find parent dbId if provided
-  let parentDbId: number | null = null;
-  if (parentId) {
-    const parent = registry.bots.get(parentId);
-    parentDbId = parent?.dbId ?? null;
-  }
-
-  // Persist bot instance to DB
   const [dbRow] = await db
     .insert(botInstancesTable)
     .values({
       symbol: sym,
-      generation: 0,
-      parentId: parentDbId,
+      generation,
+      parentId: parentDbId ?? null,
       configSnapshot: config as Record<string, unknown>,
     })
     .returning();
@@ -574,7 +613,7 @@ export async function startChildBot(
     id: botId,
     dbId: dbRow?.id ?? null,
     symbol: sym,
-    generation: 0,
+    generation,
     parentId: parentId ?? null,
     config,
     session: createEmptySession(sym),
@@ -595,14 +634,13 @@ export async function startChildBot(
 
   const evolutionThreshold = globalConfig.evolutionThreshold ?? 5;
 
-  // Run immediately then every 30 seconds
   await runChildBotLoop(bot, evolutionThreshold);
   bot.loopTimer = setInterval(async () => {
     const fresh = await getGlobalConfig();
     await runChildBotLoop(bot, fresh.evolutionThreshold ?? 5);
   }, 30000);
 
-  logger.info({ botId, symbol: sym, parentId }, "Child bot started");
+  logger.info({ botId, symbol: sym, parentId, generation }, "Child bot started");
   return bot;
 }
 
@@ -616,12 +654,10 @@ export async function stopChildBot(botId: string): Promise<boolean> {
   }
   bot.stoppedAt = new Date().toISOString();
 
-  // Close any open position
   if (bot.session.phase === "in_trade") {
     await closePosition(bot.symbol);
   }
 
-  // Mark as stopped in DB
   if (bot.dbId) {
     await db
       .update(botInstancesTable)
@@ -629,6 +665,7 @@ export async function stopChildBot(botId: string): Promise<boolean> {
       .where(eq(botInstancesTable.id, bot.dbId));
   }
 
+  lastMutation.delete(botId);
   registry.bots.delete(botId);
   logger.info({ botId, symbol: bot.symbol }, "Child bot stopped");
   return true;
@@ -655,9 +692,20 @@ export async function spawnOffspring(parentBotId: string): Promise<ChildBotState
   const parent = registry.bots.get(parentBotId);
   if (!parent) return null;
 
-  const { config: mutatedConfig } = mutateConfig(parent.config);
-  const offspring = await startChildBot(parent.symbol, mutatedConfig, parentBotId);
-  offspring.generation = parent.generation + 1;
+  const { config: mutatedConfig } = mutateConfig(
+    `${parentBotId}-offspring`,
+    parent.config,
+    parent.recentRMultiples,
+  );
+
+  const offspring = await startChildBot(
+    parent.symbol,
+    mutatedConfig,
+    parentBotId,
+    parent.dbId,
+    parent.generation,
+  );
+
   logger.info(
     { parentBotId, offspringId: offspring.id, symbol: parent.symbol, generation: offspring.generation },
     "Offspring spawned",
@@ -675,7 +723,6 @@ export async function startBot(symbol: string): Promise<void> {
   const bot = await startChildBot(symbol);
   legacyBotId = bot.id;
 
-  // Mirror into legacy botState
   botState.running = true;
   botState.symbol = symbol.toUpperCase();
   botState.phase = bot.session.phase;
@@ -684,7 +731,6 @@ export async function startBot(symbol: string): Promise<void> {
   botState.error = null;
   botState.session = bot.session;
 
-  // Keep legacy botState in sync
   botState.loopTimer = setInterval(() => {
     if (legacyBotId) {
       const b = registry.bots.get(legacyBotId);
@@ -717,7 +763,6 @@ export async function stopBot(): Promise<void> {
   logger.info("Bot stopped (legacy compat)");
 }
 
-// Re-export runBotLoop for any direct callers
 export async function runBotLoop(): Promise<void> {
   if (!legacyBotId) return;
   const bot = registry.bots.get(legacyBotId);
