@@ -4,8 +4,9 @@ import {
   useStopAllBots,
   useStopBot2,
   useSpawnOffspring,
+  useGetConfig,
 } from "@workspace/api-client-react";
-import type { ChildBot } from "@workspace/api-client-react";
+import type { ChildBot, ChildBotConfig } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,8 @@ import {
   CircleDot,
   Users,
   X,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 function phaseColor(phase: string) {
@@ -42,9 +45,48 @@ function formatMoney(val: number | undefined | null) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(val);
 }
 
-function BotCard({ bot }: { bot: ChildBot }) {
+const CONFIG_LABELS: Partial<Record<keyof ChildBotConfig, string>> = {
+  openingRangeMinutes: "ORB min",
+  riskPercent: "Risk %",
+  rewardRiskRatio: "RR ratio",
+  volumeMultiplier: "Vol mult",
+  trailingStopActivationR: "Trail R",
+  maxOrbWidthPercent: "Max ORB%",
+  minOrbWidthPercent: "Min ORB%",
+  breakoutWindowMinutes: "Bkout win",
+};
+
+function ConfigDiff({ botConfig, baseConfig }: { botConfig: ChildBotConfig; baseConfig: Partial<ChildBotConfig> }) {
+  const diffs: { key: string; label: string; bot: string | number | boolean; base: string | number | boolean }[] = [];
+
+  for (const [k, label] of Object.entries(CONFIG_LABELS)) {
+    const key = k as keyof ChildBotConfig;
+    const botVal = botConfig[key];
+    const baseVal = baseConfig[key];
+    if (botVal != null && baseVal != null && botVal !== baseVal) {
+      diffs.push({ key, label, bot: botVal as string | number | boolean, base: baseVal as string | number | boolean });
+    }
+  }
+
+  if (diffs.length === 0) return <div className="text-xs text-muted-foreground italic">No evolved parameters yet</div>;
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {diffs.map((d) => (
+        <div key={d.key} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-purple-500/10 border border-purple-500/20 rounded text-xs font-mono">
+          <span className="text-muted-foreground">{d.label}:</span>
+          <span className="text-purple-400 line-through opacity-60">{String(d.base)}</span>
+          <span className="text-purple-300 font-semibold">{String(d.bot)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BotCard({ bot, baseConfig }: { bot: ChildBot; baseConfig: Partial<ChildBotConfig> }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [showConfig, setShowConfig] = useState(false);
 
   const stopBot = useStopBot2({
     mutation: {
@@ -190,6 +232,23 @@ function BotCard({ bot }: { bot: ChildBot }) {
             {bot.error}
           </div>
         )}
+
+        {/* Evolved config diff */}
+        <div className="mt-3 border-t border-border pt-2">
+          <button
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => setShowConfig((v) => !v)}
+          >
+            {showConfig ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            Evolved params
+            {bot.generation > 0 && <span className="text-purple-400 ml-1">(Gen {bot.generation})</span>}
+          </button>
+          {showConfig && (
+            <div className="mt-2">
+              <ConfigDiff botConfig={bot.config} baseConfig={baseConfig} />
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -200,10 +259,13 @@ export default function Bots() {
   const queryClient = useQueryClient();
   const [symbolInput, setSymbolInput] = useState("");
   const [watchlist, setWatchlist] = useState<string[]>([]);
+  const [showAll, setShowAll] = useState(false);
 
   const { data: bots = [], isLoading } = useListBots({
     query: { refetchInterval: 5000 },
   });
+
+  const { data: globalConfig } = useGetConfig({ query: { refetchInterval: false } });
 
   const startBots = useStartBots({
     mutation: {
@@ -248,8 +310,11 @@ export default function Bots() {
   };
 
   const activeBots = bots.filter((b) => b.phase !== "closed");
-  const inTrade = bots.filter((b) => b.phase === "in_trade");
+  const inTrade = activeBots.filter((b) => b.phase === "in_trade");
+  const displayBots = showAll ? bots : activeBots;
   const totalCount = watchlist.length + (symbolInput.trim() ? 1 : 0);
+
+  const baseConfig: Partial<ChildBotConfig> = globalConfig ?? {};
 
   return (
     <div className="space-y-6">
@@ -263,7 +328,15 @@ export default function Bots() {
               <span className="text-success font-semibold ml-1">{inTrade.length} in trade</span>
             )}
           </div>
-          {bots.length > 0 && (
+          {bots.length > activeBots.length && (
+            <button
+              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              onClick={() => setShowAll((v) => !v)}
+            >
+              {showAll ? "Show active only" : `Show all (${bots.length})`}
+            </button>
+          )}
+          {activeBots.length > 0 && (
             <Button
               variant="destructive"
               size="sm"
@@ -276,12 +349,12 @@ export default function Bots() {
         </div>
       </div>
 
-      {bots.length > 0 && (
+      {activeBots.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card className="bg-card">
             <CardContent className="p-4">
-              <div className="text-xs text-muted-foreground mb-1">Total Bots</div>
-              <div className="text-2xl font-mono font-bold">{bots.length}</div>
+              <div className="text-xs text-muted-foreground mb-1">Active Bots</div>
+              <div className="text-2xl font-mono font-bold">{activeBots.length}</div>
             </CardContent>
           </Card>
           <Card className="bg-card">
@@ -294,18 +367,18 @@ export default function Bots() {
             <CardContent className="p-4">
               <div className="text-xs text-muted-foreground mb-1">Total P&L</div>
               <div className={`text-2xl font-mono font-bold ${
-                bots.reduce((s, b) => s + b.stats.totalPnl, 0) > 0 ? "text-success" : "text-danger"
+                activeBots.reduce((s, b) => s + b.stats.totalPnl, 0) > 0 ? "text-success" : "text-danger"
               }`}>
-                {formatMoney(bots.reduce((s, b) => s + b.stats.totalPnl, 0))}
+                {formatMoney(activeBots.reduce((s, b) => s + b.stats.totalPnl, 0))}
               </div>
             </CardContent>
           </Card>
           <Card className="bg-card">
             <CardContent className="p-4">
-              <div className="text-xs text-muted-foreground mb-1">Generations</div>
+              <div className="text-xs text-muted-foreground mb-1">Max Generation</div>
               <div className="text-2xl font-mono font-bold flex items-center gap-1">
                 <Dna className="h-5 w-5 text-purple-400" />
-                {Math.max(...bots.map((b) => b.generation), 0)}
+                {Math.max(...activeBots.map((b) => b.generation), 0)}
               </div>
             </CardContent>
           </Card>
@@ -369,15 +442,15 @@ export default function Bots() {
             <Skeleton key={i} className="h-48 w-full" />
           ))}
         </div>
-      ) : bots.length === 0 ? (
+      ) : displayBots.length === 0 ? (
         <div className="py-16 text-center text-muted-foreground flex flex-col items-center gap-3">
           <RefreshCw className="h-10 w-10 opacity-20" />
           <p className="text-sm">No bots running. Launch one above or use the Scanner to auto-start top candidates.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {bots.map((bot) => (
-            <BotCard key={bot.id} bot={bot} />
+          {displayBots.map((bot) => (
+            <BotCard key={bot.id} bot={bot} baseConfig={baseConfig} />
           ))}
         </div>
       )}

@@ -1,8 +1,8 @@
 import {
   useGetScanResults,
   useRunScan,
-  useAutoStartBots,
   useStartBots,
+  useGetConfig,
 } from "@workspace/api-client-react";
 import type { ScanCandidate } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,19 +37,43 @@ function GapBadge({ pct }: { pct: number }) {
   );
 }
 
-function CandidateRow({ c, onLaunch, launching }: { c: ScanCandidate; onLaunch: (sym: string) => void; launching: boolean }) {
+function RankBadge({ rank }: { rank?: number }) {
+  if (!rank) return null;
   return (
-    <div className={`flex items-center gap-3 p-3 rounded-md border ${c.recommended ? "border-success/20 bg-success/5" : "border-border bg-muted/20"}`}>
-      <div className="w-16 flex-shrink-0">
-        <div className="font-mono font-bold text-sm">{c.symbol}</div>
-        {c.recommended && (
-          <div className="flex items-center gap-0.5 text-xs text-yellow-400">
-            <Star className="h-2.5 w-2.5" /> top pick
-          </div>
-        )}
+    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-muted text-muted-foreground text-[10px] font-mono font-bold">
+      {rank}
+    </span>
+  );
+}
+
+function CandidateRow({
+  c,
+  onLaunch,
+  launching,
+}: {
+  c: ScanCandidate;
+  onLaunch: (sym: string) => void;
+  launching: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-3 p-3 rounded-md border ${
+        c.recommended ? "border-success/20 bg-success/5" : "border-border bg-muted/20"
+      }`}
+    >
+      <div className="w-20 flex-shrink-0 flex items-center gap-1.5">
+        <RankBadge rank={c.rank} />
+        <div>
+          <div className="font-mono font-bold text-sm">{c.symbol}</div>
+          {c.recommended && (
+            <div className="flex items-center gap-0.5 text-xs text-yellow-400">
+              <Star className="h-2.5 w-2.5" /> top pick
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+      <div className="flex-1 grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
         <div>
           <div className="text-muted-foreground">Gap</div>
           <GapBadge pct={c.gapPercent} />
@@ -67,6 +91,10 @@ function CandidateRow({ c, onLaunch, launching }: { c: ScanCandidate; onLaunch: 
         <div>
           <div className="text-muted-foreground">Prev Close</div>
           <div className="font-mono">${c.prevClose.toFixed(2)}</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground">Score</div>
+          <div className="font-mono text-primary">{c.score?.toFixed(2) ?? "---"}</div>
         </div>
       </div>
 
@@ -91,6 +119,9 @@ export default function Scanner() {
     query: { refetchInterval: 30000 },
   });
 
+  const { data: config } = useGetConfig({ query: { refetchInterval: false } });
+  const autoStartTopN = config?.autoStartTopN ?? 3;
+
   const runScan = useRunScan({
     mutation: {
       onSuccess: () => {
@@ -101,28 +132,16 @@ export default function Scanner() {
     },
   });
 
-  const autoStart = useAutoStartBots({
-    mutation: {
-      onSuccess: (result) => {
-        toast({
-          title: `Auto-started ${result.topN.length} bots`,
-          description: result.topN.map((c) => c.symbol).join(", "),
-        });
-        queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/scanner/results"] });
-      },
-      onError: (err) => toast({ title: "Auto-start failed", description: String(err), variant: "destructive" }),
-    },
-  });
-
   const startBots = useStartBots({
     mutation: {
       onSuccess: (result) => {
-        const sym = result.started?.map((b) => b.symbol).join(", ");
-        toast({ title: `Bot launched for ${sym}` });
+        const count = result.started?.length ?? 0;
+        const syms = result.started?.map((b) => b.symbol).join(", ");
+        toast({ title: `${count} bot${count !== 1 ? "s" : ""} started`, description: syms });
         queryClient.invalidateQueries({ queryKey: ["/api/bots"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/scanner/results"] });
       },
-      onError: (err) => toast({ title: "Error", description: String(err), variant: "destructive" }),
+      onError: (err) => toast({ title: "Failed to start bots", description: String(err), variant: "destructive" }),
     },
   });
 
@@ -133,6 +152,15 @@ export default function Scanner() {
   const candidates = scanData?.candidates ?? [];
   const topN = scanData?.topN ?? [];
   const scannedAt = scanData?.scannedAt;
+
+  const topNSymbols = topN.map((c) => c.symbol);
+  const startTopN = () => {
+    if (topNSymbols.length === 0) {
+      toast({ title: "No top picks", description: "Run a scan first", variant: "destructive" });
+      return;
+    }
+    startBots.mutate({ data: { symbols: topNSymbols } });
+  };
 
   return (
     <div className="space-y-6">
@@ -156,15 +184,16 @@ export default function Scanner() {
           <Button
             size="sm"
             className="bg-primary hover:bg-primary/90"
-            onClick={() => autoStart.mutate()}
-            disabled={autoStart.isPending || candidates.length === 0}
+            onClick={startTopN}
+            disabled={startBots.isPending || topN.length === 0}
+            title={`Launch bots for the top ${autoStartTopN} ranked candidates from the current scan`}
           >
-            <Zap className="h-3 w-3 mr-1" /> Auto-Start Bots
+            <Zap className="h-3 w-3 mr-1" />
+            Start Top {topN.length > 0 ? topN.length : autoStartTopN}
           </Button>
         </div>
       </div>
 
-      {/* Summary bar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card className="bg-card">
           <CardContent className="p-4">
@@ -196,14 +225,21 @@ export default function Scanner() {
         </Card>
       </div>
 
-      {/* Top picks */}
       {topN.length > 0 && (
         <Card className="bg-card border-border">
-          <CardHeader className="pb-2">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <Star className="h-4 w-4 text-yellow-400" /> Top Candidates
               <Badge variant="outline" className="ml-1 text-xs">{topN.length}</Badge>
             </CardTitle>
+            <Button
+              size="sm"
+              className="bg-success hover:bg-success/90 text-white text-xs font-bold h-7 px-3"
+              onClick={startTopN}
+              disabled={startBots.isPending}
+            >
+              <Zap className="h-3 w-3 mr-1" /> Start All Top {topN.length}
+            </Button>
           </CardHeader>
           <CardContent className="space-y-2">
             {topN.map((c) => (
@@ -218,7 +254,6 @@ export default function Scanner() {
         </Card>
       )}
 
-      {/* Full list */}
       {loadingScan ? (
         <div className="space-y-2">
           {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-16 w-full" />)}

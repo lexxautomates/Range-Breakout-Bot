@@ -119,12 +119,14 @@ export default function Dashboard() {
 
   const isRunning = botStatus?.running;
 
-  const swarmTotalPnl = swarmBots.reduce((s, b) => s + b.stats.totalPnl, 0);
-  const swarmTotalTrades = swarmBots.reduce((s, b) => s + b.stats.totalTrades, 0);
-  const swarmWins = swarmBots.reduce((s, b) => s + b.stats.wins, 0);
+  const activeBots = swarmBots.filter((b) => b.phase !== "closed");
+
+  const swarmTotalPnl = activeBots.reduce((s, b) => s + b.stats.totalPnl, 0);
+  const swarmTotalTrades = activeBots.reduce((s, b) => s + b.stats.totalTrades, 0);
+  const swarmWins = activeBots.reduce((s, b) => s + b.stats.wins, 0);
   const swarmWinRate = swarmTotalTrades > 0 ? swarmWins / swarmTotalTrades : null;
 
-  const hasSwarm = swarmBots.length > 0;
+  const hasSwarm = activeBots.length > 0;
 
   return (
     <div className="space-y-6">
@@ -141,7 +143,7 @@ export default function Dashboard() {
             {isRunning
               ? `LEGACY: ${botStatus?.symbol} | ${botStatus?.phase?.toUpperCase()}`
               : hasSwarm
-              ? `SWARM: ${swarmBots.length} BOT${swarmBots.length !== 1 ? "S" : ""} ACTIVE`
+              ? `SWARM: ${activeBots.length} BOT${activeBots.length !== 1 ? "S" : ""} ACTIVE`
               : "INACTIVE"}
           </span>
         </div>
@@ -183,7 +185,7 @@ export default function Dashboard() {
                   {formatMoney(swarmTotalPnl)}
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  {swarmBots.length} bots · {swarmTotalTrades} trades
+                  {activeBots.length} bots · {swarmTotalTrades} trades
                 </div>
               </>
             ) : loadingSummary ? (
@@ -252,10 +254,10 @@ export default function Dashboard() {
               <>
                 <div className="text-2xl font-mono font-bold flex items-center gap-2">
                   <Users className="h-5 w-5 text-primary" />
-                  {swarmBots.length}
+                  {activeBots.length}
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  {swarmBots.filter((b) => b.phase === "in_trade").length} in trade
+                  {activeBots.filter((b) => b.phase === "in_trade").length} in trade
                 </div>
               </>
             ) : loadingSession ? (
@@ -374,7 +376,7 @@ export default function Dashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-1.5">
-                {swarmBots.map((b) => (
+                {activeBots.map((b) => (
                   <div key={b.id} className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2">
                       <span className="font-mono font-semibold w-12">{b.symbol}</span>
@@ -427,7 +429,7 @@ export default function Dashboard() {
                   <p>Waiting for active session...</p>
                   {hasSwarm && (
                     <p className="text-xs mt-2">
-                      {swarmBots.length} swarm bot{swarmBots.length !== 1 ? "s" : ""} running — view details on the Bot Swarm page.
+                      {activeBots.length} swarm bot{activeBots.length !== 1 ? "s" : ""} running — view details on the Bot Swarm page.
                     </p>
                   )}
                 </div>
