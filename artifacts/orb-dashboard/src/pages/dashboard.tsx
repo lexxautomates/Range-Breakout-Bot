@@ -282,61 +282,20 @@ export default function Dashboard() {
               <CardTitle className="text-lg">Bot Control</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {!isRunning ? (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="symbols">Watchlist (comma-separated)</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="symbols"
-                        placeholder="SPY, QQQ, AAPL"
-                        className="font-mono uppercase"
-                        value={symbolInput}
-                        onChange={(e) => setSymbolInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === ",") {
-                            e.preventDefault();
-                            addSymbol();
-                          }
-                        }}
-                      />
-                      <Button variant="outline" size="sm" onClick={addSymbol} className="flex-shrink-0">
-                        Add
-                      </Button>
-                    </div>
-                    {watchlist.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {watchlist.map((sym) => (
-                          <SymbolChip key={sym} symbol={sym} onRemove={() => removeSymbol(sym)} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <Button
-                    className="w-full bg-success hover:bg-success/90 text-white font-bold"
-                    onClick={handleStart}
-                    disabled={startBots.isPending}
-                  >
-                    <Play className="mr-2 h-4 w-4" />
-                    {watchlist.length + (symbolInput.trim() ? 1 : 0) > 1
-                      ? `START ALL (${watchlist.length + (symbolInput.trim() ? 1 : 0)})`
-                      : "START BOT"}
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="bg-muted p-4 rounded-md border border-border">
-                    <div className="text-sm text-muted-foreground mb-1">Actively Trading</div>
-                    <div className="text-2xl font-bold font-mono tracking-widest">{botStatus?.symbol}</div>
-                    <div className="mt-2 flex items-center gap-2">
-                      <Badge variant="outline" className="font-mono bg-background">
+              {/* Legacy bot running indicator (if active) */}
+              {isRunning && (
+                <div className="space-y-3 pb-3 border-b border-border">
+                  <div className="bg-muted p-3 rounded-md border border-border">
+                    <div className="text-xs text-muted-foreground mb-0.5">Legacy Bot</div>
+                    <div className="text-lg font-bold font-mono tracking-widest">{botStatus?.symbol}</div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <Badge variant="outline" className="font-mono bg-background text-xs">
                         {botStatus?.phase}
                       </Badge>
                       {sessionState?.currentPnl != null && (
                         <Badge
                           variant="outline"
-                          className={`font-mono ${
+                          className={`font-mono text-xs ${
                             sessionState.currentPnl > 0
                               ? "text-success border-success/20"
                               : sessionState.currentPnl < 0
@@ -351,16 +310,59 @@ export default function Dashboard() {
                   </div>
                   <Button
                     variant="destructive"
+                    size="sm"
                     className="w-full font-bold"
                     onClick={handleStop}
                     disabled={stopBot.isPending}
                   >
-                    <Square className="mr-2 h-4 w-4" /> STOP BOT
+                    <Square className="mr-2 h-4 w-4" /> STOP LEGACY BOT
                   </Button>
                 </div>
               )}
+
+              {/* Swarm launch — always visible */}
+              <div className="space-y-2">
+                <Label htmlFor="symbols">Watchlist (comma-separated)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="symbols"
+                    placeholder="SPY, QQQ, AAPL"
+                    className="font-mono uppercase"
+                    value={symbolInput}
+                    onChange={(e) => setSymbolInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === ",") {
+                        e.preventDefault();
+                        addSymbol();
+                      }
+                    }}
+                  />
+                  <Button variant="outline" size="sm" onClick={addSymbol} className="flex-shrink-0">
+                    Add
+                  </Button>
+                </div>
+                {watchlist.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {watchlist.map((sym) => (
+                      <SymbolChip key={sym} symbol={sym} onRemove={() => removeSymbol(sym)} />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <Button
+                className="w-full bg-success hover:bg-success/90 text-white font-bold"
+                onClick={handleStart}
+                disabled={startBots.isPending}
+              >
+                <Play className="mr-2 h-4 w-4" />
+                {watchlist.length + (symbolInput.trim() ? 1 : 0) > 1
+                  ? `START ALL (${watchlist.length + (symbolInput.trim() ? 1 : 0)})`
+                  : "START BOT"}
+              </Button>
+
               {botStatus?.error && (
-                <div className="mt-4 p-3 bg-danger/10 border border-danger/20 rounded-md text-sm text-danger">
+                <div className="p-3 bg-danger/10 border border-danger/20 rounded-md text-sm text-danger">
                   Error: {botStatus.error}
                 </div>
               )}
