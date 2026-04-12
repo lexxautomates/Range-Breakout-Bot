@@ -60,7 +60,12 @@ async function fetchSnapshots(
         logger.warn({ status: resp.status }, "Snapshot fetch failed for chunk");
         continue;
       }
-      const data = await resp.json() as Record<string, AlpacaSnapshot>;
+      const rawData = await resp.json();
+      // Alpaca /v2/stocks/snapshots returns either {SYMBOL: {...}} directly
+      // or {snapshots: {SYMBOL: {...}}} depending on SDK version/endpoint variant
+      const data: Record<string, AlpacaSnapshot> =
+        (rawData as { snapshots?: Record<string, AlpacaSnapshot> }).snapshots ??
+        (rawData as Record<string, AlpacaSnapshot>);
       Object.assign(result, data);
     } catch (err) {
       logger.error({ err }, "Snapshot fetch error");

@@ -365,6 +365,18 @@ export interface Position {
   unrealizedPnlPercent: number;
 }
 
+export type EvolveTopPerformersBody = {
+  /** Number of top-performing bots to spawn offspring from */
+  topN?: number;
+  /** Minimum completed trades to qualify as a top performer */
+  minTrades?: number;
+};
+
+export type EvolveTopPerformers200 = {
+  spawned?: string[];
+  skipped?: string[];
+};
+
 export type ListTradesParams = {
   limit?: number;
   offset?: number;

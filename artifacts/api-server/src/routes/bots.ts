@@ -7,6 +7,7 @@ import {
   getChildBot,
   spawnOffspring,
 } from "../lib/botEngine.js";
+import { spawnTopPerformers } from "../lib/orchestrator.js";
 import type { ChildBotState } from "../lib/botState.js";
 
 const router = Router();
@@ -95,7 +96,17 @@ router.delete("/bots/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
-// POST /bots/:id/offspring — spawn an evolved copy of a bot
+// POST /bots/evolve — orchestrator selects top N performers and spawns offspring
+// Body: { topN?: number; minTrades?: number }
+// NOTE: must be registered BEFORE /bots/:id/* routes to avoid param matching
+router.post("/bots/evolve", async (req, res) => {
+  const topN = typeof req.body?.topN === "number" ? req.body.topN : 1;
+  const minTrades = typeof req.body?.minTrades === "number" ? req.body.minTrades : 3;
+  const result = await spawnTopPerformers(topN, minTrades);
+  res.json(result);
+});
+
+// POST /bots/:id/offspring — spawn an evolved copy of a specific bot
 router.post("/bots/:id/offspring", async (req, res) => {
   const offspring = await spawnOffspring(req.params.id!);
   if (!offspring) {

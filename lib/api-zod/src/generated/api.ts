@@ -255,6 +255,28 @@ export const StopAllBotsResponse = zod.object({
 });
 
 /**
+ * @summary Orchestrator selects top N performers by avgRMultiple and spawns offspring
+ */
+export const evolveTopPerformersBodyTopNDefault = 1;
+export const evolveTopPerformersBodyMinTradesDefault = 3;
+
+export const EvolveTopPerformersBody = zod.object({
+  topN: zod
+    .number()
+    .default(evolveTopPerformersBodyTopNDefault)
+    .describe("Number of top-performing bots to spawn offspring from"),
+  minTrades: zod
+    .number()
+    .default(evolveTopPerformersBodyMinTradesDefault)
+    .describe("Minimum completed trades to qualify as a top performer"),
+});
+
+export const EvolveTopPerformersResponse = zod.object({
+  spawned: zod.array(zod.string()).optional(),
+  skipped: zod.array(zod.string()).optional(),
+});
+
+/**
  * @summary Batch start bots for a watchlist of symbols
  */
 export const StartBotsBody = zod.object({

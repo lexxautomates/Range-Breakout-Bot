@@ -25,6 +25,8 @@ import type {
   BotStatus,
   ChildBot,
   CreateBotBody,
+  EvolveTopPerformers200,
+  EvolveTopPerformersBody,
   HealthStatus,
   ListTradesParams,
   OkResponse,
@@ -595,6 +597,92 @@ export const useStopAllBots = <
   TContext
 > => {
   return useMutation(getStopAllBotsMutationOptions(options));
+};
+
+/**
+ * @summary Orchestrator selects top N performers by avgRMultiple and spawns offspring
+ */
+export const getEvolveTopPerformersUrl = () => {
+  return `/api/bots/evolve`;
+};
+
+export const evolveTopPerformers = async (
+  evolveTopPerformersBody?: EvolveTopPerformersBody,
+  options?: RequestInit,
+): Promise<EvolveTopPerformers200> => {
+  return customFetch<EvolveTopPerformers200>(getEvolveTopPerformersUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(evolveTopPerformersBody),
+  });
+};
+
+export const getEvolveTopPerformersMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof evolveTopPerformers>>,
+    TError,
+    { data: BodyType<EvolveTopPerformersBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof evolveTopPerformers>>,
+  TError,
+  { data: BodyType<EvolveTopPerformersBody> },
+  TContext
+> => {
+  const mutationKey = ["evolveTopPerformers"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof evolveTopPerformers>>,
+    { data: BodyType<EvolveTopPerformersBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return evolveTopPerformers(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type EvolveTopPerformersMutationResult = NonNullable<
+  Awaited<ReturnType<typeof evolveTopPerformers>>
+>;
+export type EvolveTopPerformersMutationBody = BodyType<EvolveTopPerformersBody>;
+export type EvolveTopPerformersMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Orchestrator selects top N performers by avgRMultiple and spawns offspring
+ */
+export const useEvolveTopPerformers = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof evolveTopPerformers>>,
+    TError,
+    { data: BodyType<EvolveTopPerformersBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof evolveTopPerformers>>,
+  TError,
+  { data: BodyType<EvolveTopPerformersBody> },
+  TContext
+> => {
+  return useMutation(getEvolveTopPerformersMutationOptions(options));
 };
 
 /**

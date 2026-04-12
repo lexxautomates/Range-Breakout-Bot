@@ -127,6 +127,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/OkResponse"
 
+  /bots/evolve:
+    post:
+      operationId: evolveTopPerformers
+      tags: [bots]
+      summary: Orchestrator selects top N performers by avgRMultiple and spawns offspring
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                topN:
+                  type: integer
+                  description: Number of top-performing bots to spawn offspring from
+                  default: 1
+                minTrades:
+                  type: integer
+                  description: Minimum completed trades to qualify as a top performer
+                  default: 3
+      responses:
+        "200":
+          description: Offspring spawn result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  spawned:
+                    type: array
+                    items:
+                      type: string
+                  skipped:
+                    type: array
+                    items:
+                      type: string
+
   /bots/start:
     post:
       operationId: startBots

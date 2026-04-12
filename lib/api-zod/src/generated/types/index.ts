@@ -19,6 +19,8 @@ export * from "./childBotConfig";
 export * from "./childBotConfigOverride";
 export * from "./childBotPhase";
 export * from "./createBotBody";
+export * from "./evolveTopPerformers200";
+export * from "./evolveTopPerformersBody";
 export * from "./healthStatus";
 export * from "./listTradesParams";
 export * from "./okResponse";

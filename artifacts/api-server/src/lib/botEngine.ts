@@ -131,15 +131,19 @@ export async function ensureDefaultConfig(): Promise<void> {
   }
 }
 
-// ─── Self-evolution (performance-based directional mutation) ───────────────────
+// ─── Self-evolution (per-parameter impact tracking) ─────────────────────────
 //
-// Strategy: track the R-multiple trend over a rolling window.
-// - Compute the slope of recent R-multiples using linear regression.
-// - If trend is positive (improving), keep the last mutation direction for the
-//   same parameter (double-down on what's working).
-// - If trend is negative (declining), reverse the last mutation direction
-//   (undo the change that hurt performance, or try the opposite).
-// - For the first evolution cycle (no history), pick a random parameter and direction.
+// Strategy: parameter impact analysis via before/after R-multiple comparison.
+//
+// Each evolution cycle:
+// 1. Record the avgRMultiple immediately before mutation ("baseline").
+// 2. Apply the mutation (change one parameter in one direction).
+// 3. On the NEXT evolution cycle, compare current avgRMultiple to the baseline:
+//    - If avgRMultiple improved → the parameter change was beneficial → continue
+//      in the same direction (or pick a different param to explore further).
+//    - If avgRMultiple degraded → the change hurt performance → reverse direction
+//      for the same parameter to undo and search further.
+// This implements A/B testing of individual parameters over time.
 
 // Evolvable numeric parameters and their safe min/max bounds
 const EVOLVABLE_PARAMS: Array<{
@@ -156,48 +160,52 @@ const EVOLVABLE_PARAMS: Array<{
   { key: "breakoutWindowMinutes", min: 30, max: 390, step: 30 },
 ];
 
-// Track last mutation per bot for directional learning
-const lastMutation = new Map<string, { paramKey: string; direction: 1 | -1 }>();
-
-function rMultipleSlope(values: number[]): number {
-  if (values.length < 2) return 0;
-  const n = values.length;
-  const meanX = (n - 1) / 2;
-  const meanY = values.reduce((a, b) => a + b, 0) / n;
-  let num = 0;
-  let den = 0;
-  for (let i = 0; i < n; i++) {
-    num += (i - meanX) * (values[i]! - meanY);
-    den += (i - meanX) ** 2;
-  }
-  return den === 0 ? 0 : num / den;
+// Per-bot mutation state for impact tracking
+interface MutationRecord {
+  paramKey: string;
+  direction: 1 | -1;
+  baselineAvgR: number;  // avgRMultiple BEFORE this mutation was applied
 }
+
+const lastMutation = new Map<string, MutationRecord>();
 
 function mutateConfig(
   botId: string,
   config: ChildBotConfig,
-  recentRMultiples: number[],
+  currentAvgR: number,
 ): { config: ChildBotConfig; mutatedKey: string; direction: 1 | -1 } {
   const prev = lastMutation.get(botId);
-  const slope = rMultipleSlope(recentRMultiples);
 
   let paramKey: string;
   let direction: 1 | -1;
 
   if (prev) {
-    // Performance-based directional mutation:
-    // If R-multiple trend is improving (slope > 0), keep previous direction for the same param.
-    // If declining (slope <= 0), reverse direction to undo the change or try opposite.
-    direction = slope > 0 ? prev.direction : ((-prev.direction) as 1 | -1);
-    paramKey = prev.paramKey;
+    // Compare current avgR to baseline to evaluate the previous mutation's impact
+    const improved = currentAvgR > prev.baselineAvgR;
 
-    // Occasionally (25% chance) explore a different parameter even if improving
-    if (Math.random() < 0.25) {
-      paramKey = EVOLVABLE_PARAMS[Math.floor(Math.random() * EVOLVABLE_PARAMS.length)]!.key as string;
-      direction = Math.random() > 0.5 ? 1 : -1;
+    // If improved: with 75% probability keep same param/direction (exploit success);
+    //   with 25% probability explore a new parameter.
+    // If degraded: always reverse the previous direction for the same parameter
+    //   (undo what hurt performance) with 75% probability, or explore new param with 25%.
+    if (improved) {
+      if (Math.random() < 0.75) {
+        paramKey = prev.paramKey;
+        direction = prev.direction; // keep going in the profitable direction
+      } else {
+        paramKey = EVOLVABLE_PARAMS[Math.floor(Math.random() * EVOLVABLE_PARAMS.length)]!.key as string;
+        direction = Math.random() > 0.5 ? 1 : -1;
+      }
+    } else {
+      if (Math.random() < 0.75) {
+        paramKey = prev.paramKey;
+        direction = (-prev.direction) as 1 | -1; // reverse to undo harmful change
+      } else {
+        paramKey = EVOLVABLE_PARAMS[Math.floor(Math.random() * EVOLVABLE_PARAMS.length)]!.key as string;
+        direction = Math.random() > 0.5 ? 1 : -1;
+      }
     }
   } else {
-    // First evolution: random parameter and direction
+    // First evolution: pick a random parameter and direction
     const param = EVOLVABLE_PARAMS[Math.floor(Math.random() * EVOLVABLE_PARAMS.length)]!;
     paramKey = param.key as string;
     direction = Math.random() > 0.5 ? 1 : -1;
@@ -210,10 +218,11 @@ function mutateConfig(
     Math.max(paramDef.min, current + direction * paramDef.step),
   );
 
-  const isInt = paramKey.includes("Minutes") || paramKey === "breakoutWindowMinutes";
+  const isInt = paramKey.includes("Minutes");
   const finalVal = isInt ? Math.round(newVal) : parseFloat(newVal.toFixed(4));
 
-  lastMutation.set(botId, { paramKey, direction });
+  // Record this mutation with the current avgR as the new baseline
+  lastMutation.set(botId, { paramKey, direction, baselineAvgR: currentAvgR });
 
   const newConfig = { ...config, [paramKey]: finalVal };
   return { config: newConfig, mutatedKey: paramKey, direction };
@@ -226,16 +235,16 @@ async function maybeEvolve(bot: ChildBotState, evolutionThreshold: number): Prom
   const { config: newConfig, mutatedKey, direction } = mutateConfig(
     bot.id,
     bot.config,
-    bot.recentRMultiples,
+    bot.avgRMultiple,
   );
 
   const oldVal = bot.config[mutatedKey as keyof ChildBotConfig];
   const newVal = newConfig[mutatedKey as keyof ChildBotConfig];
-  const slope = rMultipleSlope(bot.recentRMultiples);
 
   bot.config = newConfig;
   bot.generation += 1;
 
+  const prevRecord = lastMutation.get(bot.id);
   logger.info(
     {
       botId: bot.id,
@@ -245,9 +254,10 @@ async function maybeEvolve(bot: ChildBotState, evolutionThreshold: number): Prom
       oldVal,
       newVal,
       direction,
-      rSlope: slope.toFixed(4),
+      baselineAvgR: prevRecord?.baselineAvgR.toFixed(3) ?? "n/a",
+      currentAvgR: bot.avgRMultiple.toFixed(3),
     },
-    "Bot evolved — directional parameter mutation",
+    "Bot evolved — parameter impact analysis",
   );
 
   if (bot.dbId) {
@@ -695,7 +705,7 @@ export async function spawnOffspring(parentBotId: string): Promise<ChildBotState
   const { config: mutatedConfig } = mutateConfig(
     `${parentBotId}-offspring`,
     parent.config,
-    parent.recentRMultiples,
+    parent.avgRMultiple,
   );
 
   const offspring = await startChildBot(

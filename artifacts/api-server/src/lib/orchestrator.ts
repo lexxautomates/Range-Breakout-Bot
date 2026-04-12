@@ -1,4 +1,4 @@
-import { startChildBot, stopAllChildBots, listChildBots } from "./botEngine.js";
+import { startChildBot, stopAllChildBots, listChildBots, spawnOffspring } from "./botEngine.js";
 import { runScan, getLastScanResult } from "./scanner.js";
 import { getGlobalConfig } from "./botEngine.js";
 import { logger } from "./logger.js";
@@ -95,6 +95,44 @@ function scheduleNextScan(): void {
   }, 60000);
 
   logger.info("Morning scan scheduler started (9:25 AM ET daily)");
+}
+
+// Spawn offspring from the top N performing bots (by avgRMultiple)
+// minTrades: only consider bots that have completed at least this many trades
+export async function spawnTopPerformers(
+  topN = 1,
+  minTrades = 3,
+): Promise<{ spawned: string[]; skipped: string[] }> {
+  const bots = listChildBots();
+  const eligible = bots
+    .filter((b) => b.totalTrades >= minTrades && b.avgRMultiple > 0)
+    .sort((a, b) => b.avgRMultiple - a.avgRMultiple)
+    .slice(0, topN);
+
+  const spawned: string[] = [];
+  const skipped: string[] = [];
+
+  for (const parent of eligible) {
+    const offspring = await spawnOffspring(parent.id);
+    if (offspring) {
+      spawned.push(offspring.id);
+      logger.info(
+        { parentId: parent.id, offspringId: offspring.id, parentAvgR: parent.avgRMultiple },
+        "Orchestrator spawned offspring from top performer",
+      );
+    } else {
+      skipped.push(parent.id);
+    }
+  }
+
+  if (eligible.length === 0) {
+    logger.info(
+      { minTrades, botsCount: bots.length },
+      "No eligible bots for orchestrator spawn (need more trades or positive avgR)",
+    );
+  }
+
+  return { spawned, skipped };
 }
 
 export function startOrchestrator(): void {
