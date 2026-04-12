@@ -35,18 +35,31 @@ The `.replit` file maps only these ports externally:
 
 ## Key Files
 
-- `artifacts/api-server/src/lib/botEngine.ts` — ORB strategy engine loop
-- `artifacts/api-server/src/lib/botState.ts` — shared in-memory bot state
+- `artifacts/api-server/src/lib/botEngine.ts` — ChildBot registry, ORB strategy loop, self-evolution, offspring spawning
+- `artifacts/api-server/src/lib/botState.ts` — shared in-memory bot state (legacy single-bot + registry)
+- `artifacts/api-server/src/lib/scanner.ts` — morning gap scanner (Alpaca snapshots, score ranking)
+- `artifacts/api-server/src/lib/orchestrator.ts` — 9:25 AM scheduler, auto-start guard, top-performer spawn
 - `artifacts/api-server/src/lib/alpaca.ts` — Alpaca client setup
 - `artifacts/api-server/src/routes/index.ts` — all routes wired
-- `lib/db/src/schema/index.ts` — trades + bot_config DB schema
+- `lib/db/src/schema/index.ts` — trades + bot_config + bot_instances DB schema
 - `lib/api-spec/openapi.yaml` — full API spec
 - `artifacts/orb-dashboard/src/App.tsx` — routing + layout
+- `artifacts/orb-dashboard/src/pages/bots.tsx` — Bot Swarm page (live child bot cards)
+- `artifacts/orb-dashboard/src/pages/scanner.tsx` — Gap Scanner page
 - `artifacts/orb-dashboard/src/pages/dashboard.tsx` — main dashboard
 - `artifacts/orb-dashboard/src/pages/trades.tsx` — trade history
 - `artifacts/orb-dashboard/src/pages/stats.tsx` — performance stats
 - `artifacts/orb-dashboard/src/pages/positions.tsx` — open positions (live Alpaca data)
-- `artifacts/orb-dashboard/src/pages/config.tsx` — bot config form
+- `artifacts/orb-dashboard/src/pages/config.tsx` — bot config form (includes swarm + evolution settings)
+
+## Multi-Bot Swarm Architecture
+
+- **`GET /api/bots`** — active runtime bots only (self-remove from registry on market close)
+- **Historical instances** — in DB `bot_instances` table (query directly via `/api/trades` filtered by `botInstanceId`)
+- **Scanner universe** — static curated list (~60 liquid symbols); can be overridden by passing `symbols[]` to `POST /api/scanner/run`
+- **Evolution** — triggers every `evolutionThreshold` trades; selects parameter by R-multiple variance × param deviation from midpoint; applies ±10% bounded mutation; tracks `baselineAvgR` for before/after comparison
+- **Self-evolution direction** — if `currentAvgR > baselineAvgR`: exploit (75% keep direction); else: correct (75% reverse direction)
+- **Orchestrator spawn** — `POST /api/bots/evolve` selects top N bots by `avgRMultiple` (min trades filter) and spawns offspring
 
 ## Key Commands
 
