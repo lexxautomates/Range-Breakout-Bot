@@ -1,11 +1,19 @@
 import { alpaca, apiKey, apiSecret, dataBaseUrl } from "./alpaca.js";
-import { botState, createEmptySession, type BotPhase } from "./botState.js";
+import {
+  registry,
+  botState,
+  createEmptySession,
+  type ChildBotState,
+  type ChildBotConfig,
+  type BotPhase,
+} from "./botState.js";
 import { db } from "@workspace/db";
-import { tradesTable, botConfigTable } from "@workspace/db";
+import { tradesTable, botConfigTable, botInstancesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
 
-// Eastern time helpers
+// ─── Time helpers ────────────────────────────────────────────────────────────
+
 function getEasternTime(): Date {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
 }
@@ -23,17 +31,13 @@ function isMarketHours(et: Date): boolean {
   return totalMins >= 9 * 60 + 30 && totalMins < 16 * 60;
 }
 
-async function getConfig() {
-  const rows = await db.select().from(botConfigTable).limit(1);
-  if (rows.length === 0) {
-    // Insert default config
-    const [cfg] = await db.insert(botConfigTable).values({}).returning();
-    return cfg!;
-  }
-  return rows[0]!;
-}
+// ─── Alpaca helpers ───────────────────────────────────────────────────────────
 
-async function fetchBars(symbol: string, timeframe: string, limit: number) {
+export async function fetchBars(
+  symbol: string,
+  timeframe: string,
+  limit: number,
+): Promise<Array<{ t: string; o: number; h: number; l: number; c: number; v: number }>> {
   const url = `${dataBaseUrl}/v2/stocks/${symbol}/bars?timeframe=${timeframe}&limit=${limit}&adjustment=raw&feed=iex`;
   const resp = await fetch(url, {
     headers: {
@@ -48,7 +52,7 @@ async function fetchBars(symbol: string, timeframe: string, limit: number) {
   return data.bars ?? [];
 }
 
-async function fetchLatestQuote(symbol: string): Promise<number | null> {
+export async function fetchLatestQuote(symbol: string): Promise<number | null> {
   try {
     const url = `${dataBaseUrl}/v2/stocks/${symbol}/quotes/latest?feed=iex`;
     const resp = await fetch(url, {
@@ -81,7 +85,11 @@ async function getAverageVolume(symbol: string, days = 10): Promise<number> {
   }
 }
 
-async function placeMarketOrder(symbol: string, side: "buy" | "sell", qty: number): Promise<string | null> {
+async function placeMarketOrder(
+  symbol: string,
+  side: "buy" | "sell",
+  qty: number,
+): Promise<string | null> {
   try {
     const order = await alpaca.createOrder({
       symbol,
@@ -105,30 +113,116 @@ async function closePosition(symbol: string): Promise<void> {
   }
 }
 
-async function recordTrade(params: {
-  symbol: string;
-  direction: "long" | "short";
-  entryPrice: number;
-  exitPrice: number;
-  stopPrice: number;
-  targetPrice: number;
-  qty: number;
-  exitReason: string;
-  orbHigh: number | null;
-  orbLow: number | null;
-  volumeRatio: number | null;
-  entryTime: Date;
-}) {
-  const { direction, entryPrice, exitPrice, stopPrice, qty, orbHigh, orbLow } = params;
+// ─── DB config ────────────────────────────────────────────────────────────────
+
+export async function getGlobalConfig() {
+  const rows = await db.select().from(botConfigTable).limit(1);
+  if (rows.length === 0) {
+    const [cfg] = await db.insert(botConfigTable).values({}).returning();
+    return cfg!;
+  }
+  return rows[0]!;
+}
+
+export async function ensureDefaultConfig(): Promise<void> {
+  const rows = await db.select().from(botConfigTable).limit(1);
+  if (rows.length === 0) {
+    await db.insert(botConfigTable).values({});
+  }
+}
+
+// ─── Self-evolution ────────────────────────────────────────────────────────────
+
+// Evolvable numeric parameters and their safe min/max bounds
+const EVOLVABLE_PARAMS: Array<{
+  key: keyof ChildBotConfig;
+  min: number;
+  max: number;
+}> = [
+  { key: "openingRangeMinutes", min: 5, max: 60 },
+  { key: "rewardRiskRatio", min: 1.0, max: 5.0 },
+  { key: "volumeMultiplier", min: 0.5, max: 5.0 },
+  { key: "maxOrbWidthPercent", min: 0.5, max: 10.0 },
+  { key: "minOrbWidthPercent", min: 0.01, max: 1.0 },
+  { key: "breakoutWindowMinutes", min: 30, max: 390 },
+];
+
+function mutateConfig(config: ChildBotConfig): { config: ChildBotConfig; mutatedKey: string } {
+  // Pick a random evolvable parameter
+  const param = EVOLVABLE_PARAMS[Math.floor(Math.random() * EVOLVABLE_PARAMS.length)]!;
+  const key = param.key as string;
+  const current = config[param.key] as number;
+
+  // Mutate by +/- 10%
+  const direction = Math.random() > 0.5 ? 1 : -1;
+  const delta = current * 0.10 * direction;
+  const newVal = Math.min(param.max, Math.max(param.min, current + delta));
+
+  const newConfig = { ...config, [key]: key.includes("Minutes") ? Math.round(newVal) : parseFloat(newVal.toFixed(4)) };
+  return { config: newConfig, mutatedKey: key };
+}
+
+async function maybeEvolve(bot: ChildBotState, evolutionThreshold: number): Promise<void> {
+  if (bot.totalTrades < evolutionThreshold) return;
+  if (bot.totalTrades % evolutionThreshold !== 0) return; // only at threshold boundaries
+
+  const { config: newConfig, mutatedKey } = mutateConfig(bot.config);
+  const oldVal = bot.config[mutatedKey as keyof ChildBotConfig];
+  const newVal = newConfig[mutatedKey as keyof ChildBotConfig];
+
+  bot.config = newConfig;
+  bot.generation += 1;
+
+  logger.info(
+    { botId: bot.id, symbol: bot.symbol, generation: bot.generation, mutatedKey, oldVal, newVal },
+    "Bot evolved — parameter mutated",
+  );
+
+  // Persist updated config snapshot and generation to DB
+  if (bot.dbId) {
+    await db
+      .update(botInstancesTable)
+      .set({
+        generation: bot.generation,
+        configSnapshot: newConfig as Record<string, unknown>,
+        avgRMultiple: bot.avgRMultiple,
+        totalTrades: bot.totalTrades,
+      })
+      .where(eq(botInstancesTable.id, bot.dbId));
+  }
+}
+
+// ─── Record trade ──────────────────────────────────────────────────────────────
+
+async function recordTrade(
+  bot: ChildBotState,
+  params: {
+    direction: "long" | "short";
+    entryPrice: number;
+    exitPrice: number;
+    stopPrice: number;
+    targetPrice: number;
+    qty: number;
+    exitReason: string;
+    orbHigh: number | null;
+    orbLow: number | null;
+    volumeRatio: number | null;
+    entryTime: Date;
+  },
+  evolutionThreshold: number,
+): Promise<void> {
+  const { direction, entryPrice, exitPrice, stopPrice, qty } = params;
   const pricePnl = direction === "long" ? exitPrice - entryPrice : entryPrice - exitPrice;
   const pnl = pricePnl * qty;
   const riskPerShare = Math.abs(entryPrice - stopPrice);
   const rMultiple = riskPerShare > 0 ? pricePnl / riskPerShare : 0;
-  const outcome: "win" | "loss" | "breakeven" = pnl > 0.01 ? "win" : pnl < -0.01 ? "loss" : "breakeven";
+  const outcome: "win" | "loss" | "breakeven" =
+    pnl > 0.01 ? "win" : pnl < -0.01 ? "loss" : "breakeven";
   const date = params.entryTime.toISOString().split("T")[0]!;
 
   await db.insert(tradesTable).values({
-    symbol: params.symbol,
+    symbol: bot.symbol,
+    botInstanceId: bot.dbId,
     direction: params.direction,
     entryPrice,
     exitPrice,
@@ -141,18 +235,39 @@ async function recordTrade(params: {
     entryTime: params.entryTime,
     exitTime: new Date(),
     exitReason: params.exitReason,
-    orbHigh,
-    orbLow,
+    orbHigh: params.orbHigh,
+    orbLow: params.orbLow,
     volumeRatio: params.volumeRatio,
     date,
   });
+
+  // Update performance metrics
+  bot.totalTrades += 1;
+  bot.totalPnl += pnl;
+  if (outcome === "win") bot.wins += 1;
+  if (outcome === "loss") bot.losses += 1;
+  bot.recentRMultiples.push(rMultiple);
+  if (bot.recentRMultiples.length > 20) bot.recentRMultiples.shift();
+  bot.avgRMultiple =
+    bot.recentRMultiples.reduce((a, b) => a + b, 0) / bot.recentRMultiples.length;
+
+  // Maybe evolve
+  await maybeEvolve(bot, evolutionThreshold);
+
+  // Persist perf stats
+  if (bot.dbId) {
+    await db
+      .update(botInstancesTable)
+      .set({ avgRMultiple: bot.avgRMultiple, totalTrades: bot.totalTrades })
+      .where(eq(botInstancesTable.id, bot.dbId));
+  }
 }
 
-export async function runBotLoop(): Promise<void> {
-  if (!botState.running || !botState.session) return;
+// ─── Core bot loop ─────────────────────────────────────────────────────────────
 
-  const session = botState.session;
-  const config = await getConfig();
+async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): Promise<void> {
+  const session = bot.session;
+  const config = bot.config;
   const et = getEasternTime();
 
   try {
@@ -161,30 +276,32 @@ export async function runBotLoop(): Promise<void> {
 
     if (!inMarket) {
       if (minsAfterOpen >= 0) {
-        // Market closed — wrap up
+        // Market closed — wrap up open trade
         if (session.phase === "in_trade") {
           await closePosition(session.symbol);
           if (session.currentPrice && session.entryPrice && session.qty) {
-            await recordTrade({
-              symbol: session.symbol,
-              direction: session.breakoutDirection as "long" | "short",
-              entryPrice: session.entryPrice,
-              exitPrice: session.currentPrice,
-              stopPrice: session.stopPrice!,
-              targetPrice: session.targetPrice!,
-              qty: session.qty,
-              exitReason: "market_close",
-              orbHigh: session.orbHigh,
-              orbLow: session.orbLow,
-              volumeRatio: session.volumeRatio,
-              entryTime: new Date(botState.startedAt!),
-            });
+            await recordTrade(
+              bot,
+              {
+                direction: session.breakoutDirection as "long" | "short",
+                entryPrice: session.entryPrice,
+                exitPrice: session.currentPrice,
+                stopPrice: session.stopPrice!,
+                targetPrice: session.targetPrice!,
+                qty: session.qty,
+                exitReason: "market_close",
+                orbHigh: session.orbHigh,
+                orbLow: session.orbLow,
+                volumeRatio: session.volumeRatio,
+                entryTime: new Date(bot.startedAt),
+              },
+              evolutionThreshold,
+            );
           }
         }
         session.phase = "closed";
-        botState.phase = "closed";
       }
-      botState.lastUpdated = new Date().toISOString();
+      bot.lastUpdated = new Date().toISOString();
       return;
     }
 
@@ -192,11 +309,10 @@ export async function runBotLoop(): Promise<void> {
     const price = await fetchLatestQuote(session.symbol);
     if (price) session.currentPrice = price;
 
-    // --- PHASE: waiting_open (before 9:30) ---
+    // --- PHASE: waiting_open ---
     if (session.phase === "waiting_open") {
       if (minsAfterOpen >= 0) {
         session.phase = "building_range";
-        botState.phase = "building_range";
         session.openRangeStart = et.toISOString();
       }
     }
@@ -204,41 +320,39 @@ export async function runBotLoop(): Promise<void> {
     // --- PHASE: building_range ---
     else if (session.phase === "building_range") {
       if (minsAfterOpen < config.openingRangeMinutes) {
-        // Still building ORB
         const bars = await fetchBars(session.symbol, "1Min", config.openingRangeMinutes + 2);
         const todayBars = bars.filter((b) => {
           const bt = new Date(b.t);
-          return getMinutesAfterOpen(new Date(bt.toLocaleString("en-US", { timeZone: "America/New_York" }))) >= 0;
+          return (
+            getMinutesAfterOpen(
+              new Date(bt.toLocaleString("en-US", { timeZone: "America/New_York" })),
+            ) >= 0
+          );
         });
-
         if (todayBars.length > 0) {
           session.orbHigh = Math.max(...todayBars.map((b) => b.h));
           session.orbLow = Math.min(...todayBars.map((b) => b.l));
           session.orbWidth = session.orbHigh - session.orbLow;
-
-          const vol = todayBars.reduce((sum, b) => sum + b.v, 0);
-          session.volume = vol;
+          session.volume = todayBars.reduce((sum, b) => sum + b.v, 0);
         }
       } else {
-        // ORB window complete
         session.openRangeEnd = et.toISOString();
         session.averageVolume = await getAverageVolume(session.symbol);
 
         if (session.orbHigh && session.orbLow && price) {
           const orbWidth = session.orbHigh - session.orbLow;
           const widthPct = (orbWidth / price) * 100;
-
           if (widthPct > config.maxOrbWidthPercent || widthPct < config.minOrbWidthPercent) {
-            logger.info({ widthPct, max: config.maxOrbWidthPercent, min: config.minOrbWidthPercent }, "ORB width filter — skipping session");
+            logger.info(
+              { botId: bot.id, widthPct, symbol: bot.symbol },
+              "ORB width filter — skipping session",
+            );
             session.phase = "closed";
-            botState.phase = "closed";
           } else {
             session.phase = "watching";
-            botState.phase = "watching";
           }
         } else {
           session.phase = "watching";
-          botState.phase = "watching";
         }
       }
     }
@@ -248,26 +362,24 @@ export async function runBotLoop(): Promise<void> {
       const breakoutDeadline = config.openingRangeMinutes + config.breakoutWindowMinutes;
       if (minsAfterOpen > breakoutDeadline) {
         session.phase = "closed";
-        botState.phase = "closed";
+        bot.lastUpdated = new Date().toISOString();
         return;
       }
 
       if (!session.orbHigh || !session.orbLow || !price) return;
 
-      // Volume check
       let volOk = true;
       if (config.requireVolumeConfirmation && session.averageVolume && session.averageVolume > 0) {
         const bars = await fetchBars(session.symbol, "1Min", 2);
         const latestVol = bars[bars.length - 1]?.v ?? 0;
         session.volume = latestVol;
-        session.volumeRatio = latestVol / (session.averageVolume / 390); // per-minute avg
+        session.volumeRatio = latestVol / (session.averageVolume / 390);
         volOk = session.volumeRatio >= config.volumeMultiplier;
       }
 
       const canLong = !session.longTradeUsed || config.reEntryEnabled;
       const canShort = !session.shortTradeUsed || config.reEntryEnabled;
 
-      // Long breakout: price closes above ORB high
       if (price > session.orbHigh && canLong && volOk) {
         const stopPrice = config.useModerateRisk
           ? (session.orbHigh + session.orbLow) / 2
@@ -275,7 +387,6 @@ export async function runBotLoop(): Promise<void> {
         const riskPerShare = price - stopPrice;
         const targetPrice = price + riskPerShare * config.rewardRiskRatio;
 
-        // Position sizing
         const account = await alpaca.getAccount() as { equity: string };
         const equity = parseFloat(account.equity);
         const riskDollars = equity * (config.riskPercent / 100);
@@ -290,14 +401,10 @@ export async function runBotLoop(): Promise<void> {
           session.qty = qty;
           session.alpacaOrderId = orderId;
           session.phase = "in_trade";
-          botState.phase = "in_trade";
           session.longTradeUsed = true;
-          logger.info({ price, stopPrice, targetPrice, qty }, "Long breakout entry");
+          logger.info({ botId: bot.id, symbol: bot.symbol, price, stopPrice, targetPrice, qty }, "Long breakout entry");
         }
-      }
-
-      // Short breakout: price closes below ORB low
-      else if (price < session.orbLow && canShort && volOk) {
+      } else if (price < session.orbLow && canShort && volOk) {
         const stopPrice = config.useModerateRisk
           ? (session.orbHigh + session.orbLow) / 2
           : session.orbHigh;
@@ -318,19 +425,28 @@ export async function runBotLoop(): Promise<void> {
           session.qty = qty;
           session.alpacaOrderId = orderId;
           session.phase = "in_trade";
-          botState.phase = "in_trade";
           session.shortTradeUsed = true;
-          logger.info({ price, stopPrice, targetPrice, qty }, "Short breakout entry");
+          logger.info({ botId: bot.id, symbol: bot.symbol, price, stopPrice, targetPrice, qty }, "Short breakout entry");
         }
       }
     }
 
     // --- PHASE: in_trade ---
     else if (session.phase === "in_trade") {
-      if (!price || !session.entryPrice || !session.stopPrice || !session.targetPrice || !session.qty) return;
+      if (
+        !price ||
+        !session.entryPrice ||
+        !session.stopPrice ||
+        !session.targetPrice ||
+        !session.qty
+      )
+        return;
 
       const direction = session.breakoutDirection as "long" | "short";
-      const pricePnl = direction === "long" ? price - session.entryPrice : session.entryPrice - price;
+      const pricePnl =
+        direction === "long"
+          ? price - session.entryPrice
+          : session.entryPrice - price;
       session.currentPnl = pricePnl * session.qty;
 
       const riskPerShare = Math.abs(session.entryPrice - session.stopPrice);
@@ -338,21 +454,12 @@ export async function runBotLoop(): Promise<void> {
 
       let exitReason: string | null = null;
 
-      // Stop loss hit
-      if (direction === "long" && price <= session.stopPrice) {
-        exitReason = "stop_loss";
-      } else if (direction === "short" && price >= session.stopPrice) {
-        exitReason = "stop_loss";
-      }
+      if (direction === "long" && price <= session.stopPrice) exitReason = "stop_loss";
+      else if (direction === "short" && price >= session.stopPrice) exitReason = "stop_loss";
 
-      // Take profit hit
-      if (direction === "long" && price >= session.targetPrice) {
-        exitReason = "take_profit";
-      } else if (direction === "short" && price <= session.targetPrice) {
-        exitReason = "take_profit";
-      }
+      if (direction === "long" && price >= session.targetPrice) exitReason = "take_profit";
+      else if (direction === "short" && price <= session.targetPrice) exitReason = "take_profit";
 
-      // Re-entry into ORB zone (early exit)
       if (!exitReason && session.orbHigh && session.orbLow) {
         if (price < session.orbHigh && price > session.orbLow) {
           exitReason = "re_entered_range";
@@ -361,9 +468,8 @@ export async function runBotLoop(): Promise<void> {
 
       // Trailing stop
       if (!exitReason && config.trailingStopEnabled && currentR >= config.trailingStopActivationR) {
-        const trailStop = direction === "long"
-          ? price - riskPerShare
-          : price + riskPerShare;
+        const trailStop =
+          direction === "long" ? price - riskPerShare : price + riskPerShare;
         if (direction === "long" && trailStop > session.stopPrice) {
           session.stopPrice = trailStop;
         } else if (direction === "short" && trailStop < session.stopPrice) {
@@ -373,26 +479,30 @@ export async function runBotLoop(): Promise<void> {
 
       if (exitReason) {
         await closePosition(session.symbol);
-        await recordTrade({
-          symbol: session.symbol,
-          direction,
-          entryPrice: session.entryPrice,
-          exitPrice: price,
-          stopPrice: session.stopPrice,
-          targetPrice: session.targetPrice,
-          qty: session.qty,
-          exitReason,
-          orbHigh: session.orbHigh,
-          orbLow: session.orbLow,
-          volumeRatio: session.volumeRatio,
-          entryTime: new Date(botState.startedAt!),
-        });
-        logger.info({ exitReason, pnl: session.currentPnl }, "Trade exited");
+        await recordTrade(
+          bot,
+          {
+            direction,
+            entryPrice: session.entryPrice,
+            exitPrice: price,
+            stopPrice: session.stopPrice,
+            targetPrice: session.targetPrice,
+            qty: session.qty,
+            exitReason,
+            orbHigh: session.orbHigh,
+            orbLow: session.orbLow,
+            volumeRatio: session.volumeRatio,
+            entryTime: new Date(bot.startedAt),
+          },
+          evolutionThreshold,
+        );
+        logger.info(
+          { botId: bot.id, symbol: bot.symbol, exitReason, pnl: session.currentPnl },
+          "Trade exited",
+        );
 
         if (!session.longTradeUsed || !session.shortTradeUsed) {
-          // Allow watching again for the other direction
           session.phase = "watching";
-          botState.phase = "watching";
           session.entryPrice = null;
           session.stopPrice = null;
           session.targetPrice = null;
@@ -402,37 +512,192 @@ export async function runBotLoop(): Promise<void> {
           session.breakoutDirection = null;
         } else {
           session.phase = "closed";
-          botState.phase = "closed";
         }
       }
     }
 
-    botState.lastUpdated = new Date().toISOString();
-    botState.session = session;
+    bot.lastUpdated = new Date().toISOString();
+    bot.session = session;
   } catch (err) {
-    logger.error({ err }, "Bot loop error");
-    botState.error = err instanceof Error ? err.message : String(err);
+    logger.error({ err, botId: bot.id, symbol: bot.symbol }, "Child bot loop error");
+    bot.error = err instanceof Error ? err.message : String(err);
   }
 }
 
-export async function startBot(symbol: string): Promise<void> {
-  if (botState.running) return;
-  botState.running = true;
-  botState.symbol = symbol.toUpperCase();
-  botState.phase = "waiting_open";
-  botState.startedAt = new Date().toISOString();
-  botState.stoppedAt = null;
-  botState.error = null;
-  botState.session = createEmptySession(symbol.toUpperCase());
+// ─── Public API: multi-bot ────────────────────────────────────────────────────
 
-  // Run every 30 seconds
-  botState.loopTimer = setInterval(async () => {
-    await runBotLoop();
+export async function startChildBot(
+  symbol: string,
+  configOverride?: Partial<ChildBotConfig>,
+  parentId?: string,
+): Promise<ChildBotState> {
+  const sym = symbol.toUpperCase();
+  const globalConfig = await getGlobalConfig();
+
+  const baseConfig: ChildBotConfig = {
+    openingRangeMinutes: globalConfig.openingRangeMinutes,
+    riskPercent: globalConfig.riskPercent,
+    rewardRiskRatio: globalConfig.rewardRiskRatio,
+    requireVolumeConfirmation: globalConfig.requireVolumeConfirmation,
+    volumeMultiplier: globalConfig.volumeMultiplier,
+    trailingStopEnabled: globalConfig.trailingStopEnabled,
+    trailingStopActivationR: globalConfig.trailingStopActivationR,
+    reEntryEnabled: globalConfig.reEntryEnabled,
+    maxOrbWidthPercent: globalConfig.maxOrbWidthPercent,
+    minOrbWidthPercent: globalConfig.minOrbWidthPercent,
+    breakoutWindowMinutes: globalConfig.breakoutWindowMinutes,
+    useModerateRisk: globalConfig.useModerateRisk,
+  };
+
+  const config: ChildBotConfig = { ...baseConfig, ...configOverride };
+  const botId = `${sym}-${registry.nextId++}`;
+
+  // Find parent dbId if provided
+  let parentDbId: number | null = null;
+  if (parentId) {
+    const parent = registry.bots.get(parentId);
+    parentDbId = parent?.dbId ?? null;
+  }
+
+  // Persist bot instance to DB
+  const [dbRow] = await db
+    .insert(botInstancesTable)
+    .values({
+      symbol: sym,
+      generation: 0,
+      parentId: parentDbId,
+      configSnapshot: config as Record<string, unknown>,
+    })
+    .returning();
+
+  const bot: ChildBotState = {
+    id: botId,
+    dbId: dbRow?.id ?? null,
+    symbol: sym,
+    generation: 0,
+    parentId: parentId ?? null,
+    config,
+    session: createEmptySession(sym),
+    startedAt: new Date().toISOString(),
+    stoppedAt: null,
+    lastUpdated: null,
+    error: null,
+    totalTrades: 0,
+    wins: 0,
+    losses: 0,
+    totalPnl: 0,
+    avgRMultiple: 0,
+    recentRMultiples: [],
+    loopTimer: null,
+  };
+
+  registry.bots.set(botId, bot);
+
+  const evolutionThreshold = globalConfig.evolutionThreshold ?? 5;
+
+  // Run immediately then every 30 seconds
+  await runChildBotLoop(bot, evolutionThreshold);
+  bot.loopTimer = setInterval(async () => {
+    const fresh = await getGlobalConfig();
+    await runChildBotLoop(bot, fresh.evolutionThreshold ?? 5);
   }, 30000);
 
-  // Run immediately
-  await runBotLoop();
-  logger.info({ symbol }, "Bot started");
+  logger.info({ botId, symbol: sym, parentId }, "Child bot started");
+  return bot;
+}
+
+export async function stopChildBot(botId: string): Promise<boolean> {
+  const bot = registry.bots.get(botId);
+  if (!bot) return false;
+
+  if (bot.loopTimer) {
+    clearInterval(bot.loopTimer);
+    bot.loopTimer = null;
+  }
+  bot.stoppedAt = new Date().toISOString();
+
+  // Close any open position
+  if (bot.session.phase === "in_trade") {
+    await closePosition(bot.symbol);
+  }
+
+  // Mark as stopped in DB
+  if (bot.dbId) {
+    await db
+      .update(botInstancesTable)
+      .set({ stoppedAt: new Date() })
+      .where(eq(botInstancesTable.id, bot.dbId));
+  }
+
+  registry.bots.delete(botId);
+  logger.info({ botId, symbol: bot.symbol }, "Child bot stopped");
+  return true;
+}
+
+export async function stopAllChildBots(): Promise<void> {
+  const ids = Array.from(registry.bots.keys());
+  for (const id of ids) {
+    await stopChildBot(id);
+  }
+}
+
+export function listChildBots(): ChildBotState[] {
+  return Array.from(registry.bots.values());
+}
+
+export function getChildBot(botId: string): ChildBotState | undefined {
+  return registry.bots.get(botId);
+}
+
+// ─── Offspring spawning ────────────────────────────────────────────────────────
+
+export async function spawnOffspring(parentBotId: string): Promise<ChildBotState | null> {
+  const parent = registry.bots.get(parentBotId);
+  if (!parent) return null;
+
+  const { config: mutatedConfig } = mutateConfig(parent.config);
+  const offspring = await startChildBot(parent.symbol, mutatedConfig, parentBotId);
+  offspring.generation = parent.generation + 1;
+  logger.info(
+    { parentBotId, offspringId: offspring.id, symbol: parent.symbol, generation: offspring.generation },
+    "Offspring spawned",
+  );
+  return offspring;
+}
+
+// ─── Legacy single-bot API (backward compat) ─────────────────────────────────
+
+let legacyBotId: string | null = null;
+
+export async function startBot(symbol: string): Promise<void> {
+  if (botState.running) return;
+
+  const bot = await startChildBot(symbol);
+  legacyBotId = bot.id;
+
+  // Mirror into legacy botState
+  botState.running = true;
+  botState.symbol = symbol.toUpperCase();
+  botState.phase = bot.session.phase;
+  botState.startedAt = bot.startedAt;
+  botState.stoppedAt = null;
+  botState.error = null;
+  botState.session = bot.session;
+
+  // Keep legacy botState in sync
+  botState.loopTimer = setInterval(() => {
+    if (legacyBotId) {
+      const b = registry.bots.get(legacyBotId);
+      if (b) {
+        botState.phase = b.session.phase as BotPhase;
+        botState.lastUpdated = b.lastUpdated;
+        botState.error = b.error;
+        botState.session = b.session;
+      }
+    }
+  }, 5000);
+
+  logger.info({ symbol }, "Bot started (legacy compat)");
 }
 
 export async function stopBot(): Promise<void> {
@@ -440,15 +705,23 @@ export async function stopBot(): Promise<void> {
     clearInterval(botState.loopTimer);
     botState.loopTimer = null;
   }
+
+  if (legacyBotId) {
+    await stopChildBot(legacyBotId);
+    legacyBotId = null;
+  }
+
   botState.running = false;
   botState.phase = "idle";
   botState.stoppedAt = new Date().toISOString();
-  logger.info("Bot stopped");
+  logger.info("Bot stopped (legacy compat)");
 }
 
-export async function ensureDefaultConfig(): Promise<void> {
-  const rows = await db.select().from(botConfigTable).limit(1);
-  if (rows.length === 0) {
-    await db.insert(botConfigTable).values({});
-  }
+// Re-export runBotLoop for any direct callers
+export async function runBotLoop(): Promise<void> {
+  if (!legacyBotId) return;
+  const bot = registry.bots.get(legacyBotId);
+  if (!bot) return;
+  const cfg = await getGlobalConfig();
+  await runChildBotLoop(bot, cfg.evolutionThreshold ?? 5);
 }

@@ -28,4 +28,5 @@ export interface SessionState {
   currentPnl?: number | null;
   longTradeUsed?: boolean;
   shortTradeUsed?: boolean;
+  qty?: number | null;
 }

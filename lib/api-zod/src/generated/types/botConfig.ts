@@ -32,5 +32,9 @@ export interface BotConfig {
   breakoutWindowMinutes: number;
   /** Use midpoint as stop instead of opposite side of range */
   useModerateRisk: boolean;
+  /** Number of trades after which a bot evolves its parameters */
+  evolutionThreshold: number;
+  /** Number of top gap-scan candidates to auto-start each morning (0 = disabled) */
+  autoStartTopN: number;
   updatedAt: string;
 }

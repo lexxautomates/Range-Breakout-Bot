@@ -2,12 +2,14 @@ import { Switch, Route, Router as WouterRouter, Link, useLocation } from "wouter
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Activity, LayoutDashboard, Settings, PieChart, Briefcase, Menu } from "lucide-react";
+import { Activity, LayoutDashboard, Settings, PieChart, Briefcase, ScanLine, Users } from "lucide-react";
 import Dashboard from "./pages/dashboard";
 import Trades from "./pages/trades";
 import Stats from "./pages/stats";
 import Config from "./pages/config";
 import Positions from "./pages/positions";
+import Bots from "./pages/bots";
+import Scanner from "./pages/scanner";
 import NotFound from "./pages/not-found";
 
 const queryClient = new QueryClient();
@@ -17,6 +19,8 @@ function Layout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/bots", label: "Bot Swarm", icon: Users },
+    { href: "/scanner", label: "Scanner", icon: ScanLine },
     { href: "/trades", label: "Trades", icon: Activity },
     { href: "/stats", label: "Stats", icon: PieChart },
     { href: "/positions", label: "Positions", icon: Briefcase },
@@ -71,6 +75,8 @@ function Router() {
     <Layout>
       <Switch>
         <Route path="/" component={Dashboard} />
+        <Route path="/bots" component={Bots} />
+        <Route path="/scanner" component={Scanner} />
         <Route path="/trades" component={Trades} />
         <Route path="/stats" component={Stats} />
         <Route path="/config" component={Config} />

@@ -32,6 +32,57 @@ export interface SessionState {
   alpacaOrderId: string | null;
 }
 
+// Per-bot config snapshot — a copy of global config that can evolve independently
+export interface ChildBotConfig {
+  openingRangeMinutes: number;
+  riskPercent: number;
+  rewardRiskRatio: number;
+  requireVolumeConfirmation: boolean;
+  volumeMultiplier: number;
+  trailingStopEnabled: boolean;
+  trailingStopActivationR: number;
+  reEntryEnabled: boolean;
+  maxOrbWidthPercent: number;
+  minOrbWidthPercent: number;
+  breakoutWindowMinutes: number;
+  useModerateRisk: boolean;
+}
+
+// State for a single child bot instance
+export interface ChildBotState {
+  id: string;           // runtime id (e.g. "SPY-1")
+  dbId: number | null;  // bot_instances row id
+  symbol: string;
+  generation: number;
+  parentId: string | null;
+  config: ChildBotConfig;
+  session: SessionState;
+  startedAt: string;
+  stoppedAt: string | null;
+  lastUpdated: string | null;
+  error: string | null;
+  // Performance tracking
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  totalPnl: number;
+  avgRMultiple: number;
+  recentRMultiples: number[]; // last N r-multiples for evolution
+  loopTimer: ReturnType<typeof setInterval> | null;
+}
+
+// The global registry of all running child bots
+export interface BotRegistry {
+  bots: Map<string, ChildBotState>;
+  nextId: number;
+}
+
+export const registry: BotRegistry = {
+  bots: new Map(),
+  nextId: 1,
+};
+
+// Legacy single-bot state (kept for backward compat with /bot/* routes)
 export interface BotState {
   running: boolean;
   symbol: string;
@@ -70,6 +121,7 @@ export const createEmptySession = (symbol: string): SessionState => ({
   alpacaOrderId: null,
 });
 
+// Legacy single-bot state (wraps first bot in registry for backward compat)
 export const botState: BotState = {
   running: false,
   symbol: "",

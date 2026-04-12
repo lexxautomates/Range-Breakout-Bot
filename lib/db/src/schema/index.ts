@@ -1,13 +1,30 @@
-import { pgTable, serial, text, real, integer, boolean, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, real, integer, boolean, timestamp, pgEnum, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const directionEnum = pgEnum("direction", ["long", "short"]);
 export const outcomeEnum = pgEnum("outcome", ["win", "loss", "breakeven"]);
 
+export const botInstancesTable = pgTable("bot_instances", {
+  id: serial("id").primaryKey(),
+  symbol: text("symbol").notNull(),
+  generation: integer("generation").notNull().default(0),
+  parentId: integer("parent_id"),
+  configSnapshot: jsonb("config_snapshot").notNull().default({}),
+  avgRMultiple: real("avg_r_multiple").notNull().default(0),
+  totalTrades: integer("total_trades").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  stoppedAt: timestamp("stopped_at"),
+});
+
+export const insertBotInstanceSchema = createInsertSchema(botInstancesTable).omit({ id: true, createdAt: true });
+export type InsertBotInstance = z.infer<typeof insertBotInstanceSchema>;
+export type BotInstance = typeof botInstancesTable.$inferSelect;
+
 export const tradesTable = pgTable("trades", {
   id: serial("id").primaryKey(),
   symbol: text("symbol").notNull(),
+  botInstanceId: integer("bot_instance_id"),
   direction: directionEnum("direction").notNull(),
   entryPrice: real("entry_price").notNull(),
   exitPrice: real("exit_price").notNull(),
@@ -44,6 +61,8 @@ export const botConfigTable = pgTable("bot_config", {
   minOrbWidthPercent: real("min_orb_width_percent").notNull().default(0.1),
   breakoutWindowMinutes: integer("breakout_window_minutes").notNull().default(240),
   useModerateRisk: boolean("use_moderate_risk").notNull().default(false),
+  evolutionThreshold: integer("evolution_threshold").notNull().default(5),
+  autoStartTopN: integer("auto_start_top_n").notNull().default(0),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

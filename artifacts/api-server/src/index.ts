@@ -1,6 +1,7 @@
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
 import { ensureDefaultConfig } from "./lib/botEngine.js";
+import { startOrchestrator } from "./lib/orchestrator.js";
 
 const rawPort = process.env["PORT"];
 
@@ -28,6 +29,8 @@ app.listen(port, async (err) => {
   } catch (e) {
     logger.error({ err: e }, "Failed to ensure default config");
   }
+
+  startOrchestrator();
 
   logger.info({ port }, "Server listening");
 });

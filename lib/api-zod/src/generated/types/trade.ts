@@ -11,6 +11,7 @@ import type { TradeOutcome } from "./tradeOutcome";
 export interface Trade {
   id: number;
   symbol: string;
+  botInstanceId?: number | null;
   direction: TradeDirection;
   entryPrice: number;
   exitPrice: number;

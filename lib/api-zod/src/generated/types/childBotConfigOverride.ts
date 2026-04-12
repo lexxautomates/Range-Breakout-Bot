@@ -6,7 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface BotConfigBody {
+export interface ChildBotConfigOverride {
   openingRangeMinutes?: number;
   riskPercent?: number;
   rewardRiskRatio?: number;
@@ -19,6 +19,4 @@ export interface BotConfigBody {
   minOrbWidthPercent?: number;
   breakoutWindowMinutes?: number;
   useModerateRisk?: boolean;
-  evolutionThreshold?: number;
-  autoStartTopN?: number;
 }

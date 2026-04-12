@@ -18,12 +18,18 @@ import type {
 
 import type {
   AccountInfo,
+  AutoStartResult,
   BotConfig,
   BotConfigBody,
   BotStatus,
+  ChildBot,
+  CreateBotBody,
   HealthStatus,
   ListTradesParams,
+  OkResponse,
   Position,
+  ScanRequest,
+  ScanResult,
   SessionState,
   SessionSummary,
   StartBotBody,
@@ -353,6 +359,723 @@ export const useStopBot = <
   TContext
 > => {
   return useMutation(getStopBotMutationOptions(options));
+};
+
+/**
+ * @summary List all running child bots
+ */
+export const getListBotsUrl = () => {
+  return `/api/bots`;
+};
+
+export const listBots = async (options?: RequestInit): Promise<ChildBot[]> => {
+  return customFetch<ChildBot[]>(getListBotsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListBotsQueryKey = () => {
+  return [`/api/bots`] as const;
+};
+
+export const getListBotsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listBots>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof listBots>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListBotsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listBots>>> = ({
+    signal,
+  }) => listBots({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listBots>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListBotsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listBots>>
+>;
+export type ListBotsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List all running child bots
+ */
+
+export function useListBots<
+  TData = Awaited<ReturnType<typeof listBots>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof listBots>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListBotsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Start a new child bot for a symbol
+ */
+export const getCreateBotUrl = () => {
+  return `/api/bots`;
+};
+
+export const createBot = async (
+  createBotBody: CreateBotBody,
+  options?: RequestInit,
+): Promise<ChildBot> => {
+  return customFetch<ChildBot>(getCreateBotUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createBotBody),
+  });
+};
+
+export const getCreateBotMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createBot>>,
+    TError,
+    { data: BodyType<CreateBotBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createBot>>,
+  TError,
+  { data: BodyType<CreateBotBody> },
+  TContext
+> => {
+  const mutationKey = ["createBot"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createBot>>,
+    { data: BodyType<CreateBotBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createBot(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateBotMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createBot>>
+>;
+export type CreateBotMutationBody = BodyType<CreateBotBody>;
+export type CreateBotMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Start a new child bot for a symbol
+ */
+export const useCreateBot = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createBot>>,
+    TError,
+    { data: BodyType<CreateBotBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createBot>>,
+  TError,
+  { data: BodyType<CreateBotBody> },
+  TContext
+> => {
+  return useMutation(getCreateBotMutationOptions(options));
+};
+
+/**
+ * @summary Stop all running child bots
+ */
+export const getStopAllBotsUrl = () => {
+  return `/api/bots`;
+};
+
+export const stopAllBots = async (
+  options?: RequestInit,
+): Promise<OkResponse> => {
+  return customFetch<OkResponse>(getStopAllBotsUrl(), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getStopAllBotsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof stopAllBots>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof stopAllBots>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["stopAllBots"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof stopAllBots>>,
+    void
+  > = () => {
+    return stopAllBots(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StopAllBotsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof stopAllBots>>
+>;
+
+export type StopAllBotsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Stop all running child bots
+ */
+export const useStopAllBots = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof stopAllBots>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof stopAllBots>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getStopAllBotsMutationOptions(options));
+};
+
+/**
+ * @summary Get a single child bot by id
+ */
+export const getGetBotUrl = (id: string) => {
+  return `/api/bots/${id}`;
+};
+
+export const getBot = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ChildBot> => {
+  return customFetch<ChildBot>(getGetBotUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetBotQueryKey = (id: string) => {
+  return [`/api/bots/${id}`] as const;
+};
+
+export const getGetBotQueryOptions = <
+  TData = Awaited<ReturnType<typeof getBot>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getBot>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetBotQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getBot>>> = ({
+    signal,
+  }) => getBot(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getBot>>, TError, TData> & {
+    queryKey: QueryKey;
+  };
+};
+
+export type GetBotQueryResult = NonNullable<Awaited<ReturnType<typeof getBot>>>;
+export type GetBotQueryError = ErrorType<void>;
+
+/**
+ * @summary Get a single child bot by id
+ */
+
+export function useGetBot<
+  TData = Awaited<ReturnType<typeof getBot>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getBot>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBotQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Stop a single child bot
+ */
+export const getStopBot2Url = (id: string) => {
+  return `/api/bots/${id}`;
+};
+
+export const stopBot2 = async (
+  id: string,
+  options?: RequestInit,
+): Promise<OkResponse> => {
+  return customFetch<OkResponse>(getStopBot2Url(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getStopBot2MutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof stopBot2>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof stopBot2>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["stopBot2"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof stopBot2>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return stopBot2(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StopBot2MutationResult = NonNullable<
+  Awaited<ReturnType<typeof stopBot2>>
+>;
+
+export type StopBot2MutationError = ErrorType<void>;
+
+/**
+ * @summary Stop a single child bot
+ */
+export const useStopBot2 = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof stopBot2>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof stopBot2>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getStopBot2MutationOptions(options));
+};
+
+/**
+ * @summary Spawn an evolved offspring of a child bot
+ */
+export const getSpawnOffspringUrl = (id: string) => {
+  return `/api/bots/${id}/offspring`;
+};
+
+export const spawnOffspring = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ChildBot> => {
+  return customFetch<ChildBot>(getSpawnOffspringUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getSpawnOffspringMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof spawnOffspring>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof spawnOffspring>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["spawnOffspring"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof spawnOffspring>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return spawnOffspring(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SpawnOffspringMutationResult = NonNullable<
+  Awaited<ReturnType<typeof spawnOffspring>>
+>;
+
+export type SpawnOffspringMutationError = ErrorType<void>;
+
+/**
+ * @summary Spawn an evolved offspring of a child bot
+ */
+export const useSpawnOffspring = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof spawnOffspring>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof spawnOffspring>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getSpawnOffspringMutationOptions(options));
+};
+
+/**
+ * @summary Get the latest cached scanner results
+ */
+export const getGetScanResultsUrl = () => {
+  return `/api/scanner/results`;
+};
+
+export const getScanResults = async (
+  options?: RequestInit,
+): Promise<ScanResult> => {
+  return customFetch<ScanResult>(getGetScanResultsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetScanResultsQueryKey = () => {
+  return [`/api/scanner/results`] as const;
+};
+
+export const getGetScanResultsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getScanResults>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScanResults>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetScanResultsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getScanResults>>> = ({
+    signal,
+  }) => getScanResults({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getScanResults>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetScanResultsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getScanResults>>
+>;
+export type GetScanResultsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get the latest cached scanner results
+ */
+
+export function useGetScanResults<
+  TData = Awaited<ReturnType<typeof getScanResults>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getScanResults>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetScanResultsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Trigger a manual gap scan
+ */
+export const getRunScanUrl = () => {
+  return `/api/scanner/run`;
+};
+
+export const runScan = async (
+  scanRequest?: ScanRequest,
+  options?: RequestInit,
+): Promise<ScanResult> => {
+  return customFetch<ScanResult>(getRunScanUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(scanRequest),
+  });
+};
+
+export const getRunScanMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runScan>>,
+    TError,
+    { data: BodyType<ScanRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runScan>>,
+  TError,
+  { data: BodyType<ScanRequest> },
+  TContext
+> => {
+  const mutationKey = ["runScan"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runScan>>,
+    { data: BodyType<ScanRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return runScan(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunScanMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runScan>>
+>;
+export type RunScanMutationBody = BodyType<ScanRequest>;
+export type RunScanMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Trigger a manual gap scan
+ */
+export const useRunScan = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runScan>>,
+    TError,
+    { data: BodyType<ScanRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runScan>>,
+  TError,
+  { data: BodyType<ScanRequest> },
+  TContext
+> => {
+  return useMutation(getRunScanMutationOptions(options));
+};
+
+/**
+ * @summary Run scan and auto-start top N bots
+ */
+export const getAutoStartBotsUrl = () => {
+  return `/api/scanner/auto-start`;
+};
+
+export const autoStartBots = async (
+  options?: RequestInit,
+): Promise<AutoStartResult> => {
+  return customFetch<AutoStartResult>(getAutoStartBotsUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getAutoStartBotsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof autoStartBots>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof autoStartBots>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["autoStartBots"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof autoStartBots>>,
+    void
+  > = () => {
+    return autoStartBots(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AutoStartBotsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof autoStartBots>>
+>;
+
+export type AutoStartBotsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Run scan and auto-start top N bots
+ */
+export const useAutoStartBots = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof autoStartBots>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof autoStartBots>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getAutoStartBotsMutationOptions(options));
 };
 
 /**

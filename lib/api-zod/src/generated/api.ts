@@ -79,6 +79,452 @@ export const StopBotResponse = zod.object({
 });
 
 /**
+ * @summary List all running child bots
+ */
+export const ListBotsResponseItem = zod.object({
+  id: zod.string(),
+  dbId: zod.number().nullish(),
+  symbol: zod.string(),
+  generation: zod.number(),
+  parentId: zod.string().nullish(),
+  config: zod.object({
+    openingRangeMinutes: zod.number(),
+    riskPercent: zod.number(),
+    rewardRiskRatio: zod.number(),
+    requireVolumeConfirmation: zod.boolean(),
+    volumeMultiplier: zod.number(),
+    trailingStopEnabled: zod.boolean(),
+    trailingStopActivationR: zod.number(),
+    reEntryEnabled: zod.boolean(),
+    maxOrbWidthPercent: zod.number(),
+    minOrbWidthPercent: zod.number(),
+    breakoutWindowMinutes: zod.number(),
+    useModerateRisk: zod.boolean(),
+  }),
+  phase: zod.enum([
+    "idle",
+    "waiting_open",
+    "building_range",
+    "watching",
+    "in_trade",
+    "closed",
+  ]),
+  session: zod.object({
+    symbol: zod.string(),
+    phase: zod.enum([
+      "idle",
+      "waiting_open",
+      "building_range",
+      "watching",
+      "in_trade",
+      "closed",
+    ]),
+    date: zod.string(),
+    orbHigh: zod.number().nullish(),
+    orbLow: zod.number().nullish(),
+    orbWidth: zod.number().nullish(),
+    currentPrice: zod.number().nullish(),
+    volume: zod.number().nullish(),
+    averageVolume: zod.number().nullish(),
+    volumeRatio: zod.number().nullish(),
+    openRangeStart: zod.string().nullish(),
+    openRangeEnd: zod.string().nullish(),
+    breakoutDirection: zod.enum(["long", "short", "none"]).nullish(),
+    entryPrice: zod.number().nullish(),
+    stopPrice: zod.number().nullish(),
+    targetPrice: zod.number().nullish(),
+    currentPnl: zod.number().nullish(),
+    longTradeUsed: zod.boolean().optional(),
+    shortTradeUsed: zod.boolean().optional(),
+    qty: zod.number().nullish(),
+  }),
+  startedAt: zod.string(),
+  stoppedAt: zod.string().nullish(),
+  lastUpdated: zod.string().nullish(),
+  error: zod.string().nullish(),
+  stats: zod.object({
+    totalTrades: zod.number(),
+    wins: zod.number(),
+    losses: zod.number(),
+    totalPnl: zod.number(),
+    avgRMultiple: zod.number(),
+    winRate: zod.number(),
+  }),
+});
+export const ListBotsResponse = zod.array(ListBotsResponseItem);
+
+/**
+ * @summary Start a new child bot for a symbol
+ */
+export const CreateBotBody = zod.object({
+  symbol: zod.string(),
+  config: zod
+    .object({
+      openingRangeMinutes: zod.number().optional(),
+      riskPercent: zod.number().optional(),
+      rewardRiskRatio: zod.number().optional(),
+      requireVolumeConfirmation: zod.boolean().optional(),
+      volumeMultiplier: zod.number().optional(),
+      trailingStopEnabled: zod.boolean().optional(),
+      trailingStopActivationR: zod.number().optional(),
+      reEntryEnabled: zod.boolean().optional(),
+      maxOrbWidthPercent: zod.number().optional(),
+      minOrbWidthPercent: zod.number().optional(),
+      breakoutWindowMinutes: zod.number().optional(),
+      useModerateRisk: zod.boolean().optional(),
+    })
+    .optional(),
+});
+
+export const CreateBotResponse = zod.object({
+  id: zod.string(),
+  dbId: zod.number().nullish(),
+  symbol: zod.string(),
+  generation: zod.number(),
+  parentId: zod.string().nullish(),
+  config: zod.object({
+    openingRangeMinutes: zod.number(),
+    riskPercent: zod.number(),
+    rewardRiskRatio: zod.number(),
+    requireVolumeConfirmation: zod.boolean(),
+    volumeMultiplier: zod.number(),
+    trailingStopEnabled: zod.boolean(),
+    trailingStopActivationR: zod.number(),
+    reEntryEnabled: zod.boolean(),
+    maxOrbWidthPercent: zod.number(),
+    minOrbWidthPercent: zod.number(),
+    breakoutWindowMinutes: zod.number(),
+    useModerateRisk: zod.boolean(),
+  }),
+  phase: zod.enum([
+    "idle",
+    "waiting_open",
+    "building_range",
+    "watching",
+    "in_trade",
+    "closed",
+  ]),
+  session: zod.object({
+    symbol: zod.string(),
+    phase: zod.enum([
+      "idle",
+      "waiting_open",
+      "building_range",
+      "watching",
+      "in_trade",
+      "closed",
+    ]),
+    date: zod.string(),
+    orbHigh: zod.number().nullish(),
+    orbLow: zod.number().nullish(),
+    orbWidth: zod.number().nullish(),
+    currentPrice: zod.number().nullish(),
+    volume: zod.number().nullish(),
+    averageVolume: zod.number().nullish(),
+    volumeRatio: zod.number().nullish(),
+    openRangeStart: zod.string().nullish(),
+    openRangeEnd: zod.string().nullish(),
+    breakoutDirection: zod.enum(["long", "short", "none"]).nullish(),
+    entryPrice: zod.number().nullish(),
+    stopPrice: zod.number().nullish(),
+    targetPrice: zod.number().nullish(),
+    currentPnl: zod.number().nullish(),
+    longTradeUsed: zod.boolean().optional(),
+    shortTradeUsed: zod.boolean().optional(),
+    qty: zod.number().nullish(),
+  }),
+  startedAt: zod.string(),
+  stoppedAt: zod.string().nullish(),
+  lastUpdated: zod.string().nullish(),
+  error: zod.string().nullish(),
+  stats: zod.object({
+    totalTrades: zod.number(),
+    wins: zod.number(),
+    losses: zod.number(),
+    totalPnl: zod.number(),
+    avgRMultiple: zod.number(),
+    winRate: zod.number(),
+  }),
+});
+
+/**
+ * @summary Stop all running child bots
+ */
+export const StopAllBotsResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary Get a single child bot by id
+ */
+export const GetBotParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetBotResponse = zod.object({
+  id: zod.string(),
+  dbId: zod.number().nullish(),
+  symbol: zod.string(),
+  generation: zod.number(),
+  parentId: zod.string().nullish(),
+  config: zod.object({
+    openingRangeMinutes: zod.number(),
+    riskPercent: zod.number(),
+    rewardRiskRatio: zod.number(),
+    requireVolumeConfirmation: zod.boolean(),
+    volumeMultiplier: zod.number(),
+    trailingStopEnabled: zod.boolean(),
+    trailingStopActivationR: zod.number(),
+    reEntryEnabled: zod.boolean(),
+    maxOrbWidthPercent: zod.number(),
+    minOrbWidthPercent: zod.number(),
+    breakoutWindowMinutes: zod.number(),
+    useModerateRisk: zod.boolean(),
+  }),
+  phase: zod.enum([
+    "idle",
+    "waiting_open",
+    "building_range",
+    "watching",
+    "in_trade",
+    "closed",
+  ]),
+  session: zod.object({
+    symbol: zod.string(),
+    phase: zod.enum([
+      "idle",
+      "waiting_open",
+      "building_range",
+      "watching",
+      "in_trade",
+      "closed",
+    ]),
+    date: zod.string(),
+    orbHigh: zod.number().nullish(),
+    orbLow: zod.number().nullish(),
+    orbWidth: zod.number().nullish(),
+    currentPrice: zod.number().nullish(),
+    volume: zod.number().nullish(),
+    averageVolume: zod.number().nullish(),
+    volumeRatio: zod.number().nullish(),
+    openRangeStart: zod.string().nullish(),
+    openRangeEnd: zod.string().nullish(),
+    breakoutDirection: zod.enum(["long", "short", "none"]).nullish(),
+    entryPrice: zod.number().nullish(),
+    stopPrice: zod.number().nullish(),
+    targetPrice: zod.number().nullish(),
+    currentPnl: zod.number().nullish(),
+    longTradeUsed: zod.boolean().optional(),
+    shortTradeUsed: zod.boolean().optional(),
+    qty: zod.number().nullish(),
+  }),
+  startedAt: zod.string(),
+  stoppedAt: zod.string().nullish(),
+  lastUpdated: zod.string().nullish(),
+  error: zod.string().nullish(),
+  stats: zod.object({
+    totalTrades: zod.number(),
+    wins: zod.number(),
+    losses: zod.number(),
+    totalPnl: zod.number(),
+    avgRMultiple: zod.number(),
+    winRate: zod.number(),
+  }),
+});
+
+/**
+ * @summary Stop a single child bot
+ */
+export const StopBot2Params = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const StopBot2Response = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary Spawn an evolved offspring of a child bot
+ */
+export const SpawnOffspringParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const SpawnOffspringResponse = zod.object({
+  id: zod.string(),
+  dbId: zod.number().nullish(),
+  symbol: zod.string(),
+  generation: zod.number(),
+  parentId: zod.string().nullish(),
+  config: zod.object({
+    openingRangeMinutes: zod.number(),
+    riskPercent: zod.number(),
+    rewardRiskRatio: zod.number(),
+    requireVolumeConfirmation: zod.boolean(),
+    volumeMultiplier: zod.number(),
+    trailingStopEnabled: zod.boolean(),
+    trailingStopActivationR: zod.number(),
+    reEntryEnabled: zod.boolean(),
+    maxOrbWidthPercent: zod.number(),
+    minOrbWidthPercent: zod.number(),
+    breakoutWindowMinutes: zod.number(),
+    useModerateRisk: zod.boolean(),
+  }),
+  phase: zod.enum([
+    "idle",
+    "waiting_open",
+    "building_range",
+    "watching",
+    "in_trade",
+    "closed",
+  ]),
+  session: zod.object({
+    symbol: zod.string(),
+    phase: zod.enum([
+      "idle",
+      "waiting_open",
+      "building_range",
+      "watching",
+      "in_trade",
+      "closed",
+    ]),
+    date: zod.string(),
+    orbHigh: zod.number().nullish(),
+    orbLow: zod.number().nullish(),
+    orbWidth: zod.number().nullish(),
+    currentPrice: zod.number().nullish(),
+    volume: zod.number().nullish(),
+    averageVolume: zod.number().nullish(),
+    volumeRatio: zod.number().nullish(),
+    openRangeStart: zod.string().nullish(),
+    openRangeEnd: zod.string().nullish(),
+    breakoutDirection: zod.enum(["long", "short", "none"]).nullish(),
+    entryPrice: zod.number().nullish(),
+    stopPrice: zod.number().nullish(),
+    targetPrice: zod.number().nullish(),
+    currentPnl: zod.number().nullish(),
+    longTradeUsed: zod.boolean().optional(),
+    shortTradeUsed: zod.boolean().optional(),
+    qty: zod.number().nullish(),
+  }),
+  startedAt: zod.string(),
+  stoppedAt: zod.string().nullish(),
+  lastUpdated: zod.string().nullish(),
+  error: zod.string().nullish(),
+  stats: zod.object({
+    totalTrades: zod.number(),
+    wins: zod.number(),
+    losses: zod.number(),
+    totalPnl: zod.number(),
+    avgRMultiple: zod.number(),
+    winRate: zod.number(),
+  }),
+});
+
+/**
+ * @summary Get the latest cached scanner results
+ */
+export const GetScanResultsResponse = zod.object({
+  scannedAt: zod.string().nullable(),
+  candidates: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      prevClose: zod.number(),
+      open: zod.number(),
+      currentPrice: zod.number(),
+      gapPercent: zod.number(),
+      gapDirection: zod.enum(["up", "down"]),
+      volume: zod.number(),
+      avgVolume: zod.number(),
+      relativeVolume: zod.number(),
+      recommended: zod.boolean(),
+    }),
+  ),
+  topN: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      prevClose: zod.number(),
+      open: zod.number(),
+      currentPrice: zod.number(),
+      gapPercent: zod.number(),
+      gapDirection: zod.enum(["up", "down"]),
+      volume: zod.number(),
+      avgVolume: zod.number(),
+      relativeVolume: zod.number(),
+      recommended: zod.boolean(),
+    }),
+  ),
+});
+
+/**
+ * @summary Trigger a manual gap scan
+ */
+export const runScanBodyTopNDefault = 10;
+export const runScanBodyMinGapPercentDefault = 0.5;
+export const runScanBodyMinRelativeVolumeDefault = 1;
+
+export const RunScanBody = zod.object({
+  symbols: zod.array(zod.string()).optional(),
+  topN: zod.number().default(runScanBodyTopNDefault),
+  minGapPercent: zod.number().default(runScanBodyMinGapPercentDefault),
+  minRelativeVolume: zod.number().default(runScanBodyMinRelativeVolumeDefault),
+});
+
+export const RunScanResponse = zod.object({
+  scannedAt: zod.string().nullable(),
+  candidates: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      prevClose: zod.number(),
+      open: zod.number(),
+      currentPrice: zod.number(),
+      gapPercent: zod.number(),
+      gapDirection: zod.enum(["up", "down"]),
+      volume: zod.number(),
+      avgVolume: zod.number(),
+      relativeVolume: zod.number(),
+      recommended: zod.boolean(),
+    }),
+  ),
+  topN: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      prevClose: zod.number(),
+      open: zod.number(),
+      currentPrice: zod.number(),
+      gapPercent: zod.number(),
+      gapDirection: zod.enum(["up", "down"]),
+      volume: zod.number(),
+      avgVolume: zod.number(),
+      relativeVolume: zod.number(),
+      recommended: zod.boolean(),
+    }),
+  ),
+});
+
+/**
+ * @summary Run scan and auto-start top N bots
+ */
+export const AutoStartBotsResponse = zod.object({
+  ok: zod.boolean(),
+  scannedAt: zod.string().nullish(),
+  topN: zod.array(
+    zod.object({
+      symbol: zod.string(),
+      prevClose: zod.number(),
+      open: zod.number(),
+      currentPrice: zod.number(),
+      gapPercent: zod.number(),
+      gapDirection: zod.enum(["up", "down"]),
+      volume: zod.number(),
+      avgVolume: zod.number(),
+      relativeVolume: zod.number(),
+      recommended: zod.boolean(),
+    }),
+  ),
+});
+
+/**
  * @summary Get current trading session state
  */
 export const GetCurrentSessionResponse = zod.object({
@@ -108,6 +554,7 @@ export const GetCurrentSessionResponse = zod.object({
   currentPnl: zod.number().nullish(),
   longTradeUsed: zod.boolean().optional(),
   shortTradeUsed: zod.boolean().optional(),
+  qty: zod.number().nullish(),
 });
 
 /**
@@ -140,6 +587,7 @@ export const ListTradesResponse = zod.object({
     zod.object({
       id: zod.number(),
       symbol: zod.string(),
+      botInstanceId: zod.number().nullish(),
       direction: zod.enum(["long", "short"]),
       entryPrice: zod.number(),
       exitPrice: zod.number(),
@@ -217,6 +665,14 @@ export const GetConfigResponse = zod.object({
   useModerateRisk: zod
     .boolean()
     .describe("Use midpoint as stop instead of opposite side of range"),
+  evolutionThreshold: zod
+    .number()
+    .describe("Number of trades after which a bot evolves its parameters"),
+  autoStartTopN: zod
+    .number()
+    .describe(
+      "Number of top gap-scan candidates to auto-start each morning (0 = disabled)",
+    ),
   updatedAt: zod.string(),
 });
 
@@ -236,6 +692,8 @@ export const UpdateConfigBody = zod.object({
   minOrbWidthPercent: zod.number().optional(),
   breakoutWindowMinutes: zod.number().optional(),
   useModerateRisk: zod.boolean().optional(),
+  evolutionThreshold: zod.number().optional(),
+  autoStartTopN: zod.number().optional(),
 });
 
 export const UpdateConfigResponse = zod.object({
@@ -274,6 +732,14 @@ export const UpdateConfigResponse = zod.object({
   useModerateRisk: zod
     .boolean()
     .describe("Use midpoint as stop instead of opposite side of range"),
+  evolutionThreshold: zod
+    .number()
+    .describe("Number of trades after which a bot evolves its parameters"),
+  autoStartTopN: zod
+    .number()
+    .describe(
+      "Number of top gap-scan candidates to auto-start each morning (0 = disabled)",
+    ),
   updatedAt: zod.string(),
 });
 

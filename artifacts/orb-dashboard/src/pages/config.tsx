@@ -23,6 +23,8 @@ interface ConfigForm {
   minOrbWidthPercent: number;
   breakoutWindowMinutes: number;
   useModerateRisk: boolean;
+  evolutionThreshold: number;
+  autoStartTopN: number;
 }
 
 function NumberField({ label, id, value, onChange, step = 0.1, min = 0, help }: {
@@ -102,6 +104,8 @@ export default function Config() {
         minOrbWidthPercent: config.minOrbWidthPercent,
         breakoutWindowMinutes: config.breakoutWindowMinutes,
         useModerateRisk: config.useModerateRisk,
+        evolutionThreshold: config.evolutionThreshold,
+        autoStartTopN: config.autoStartTopN,
       });
     }
   }, [config]);
@@ -271,6 +275,32 @@ export default function Config() {
               checked={form.reEntryEnabled}
               onChange={(v) => set("reEntryEnabled", v)}
               help="Allow trading the same direction again after a stop-out"
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card border-border">
+          <CardHeader>
+            <CardTitle className="text-sm text-muted-foreground uppercase tracking-wider font-medium">Swarm & Evolution</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <NumberField
+              label="Evolution Threshold (trades)"
+              id="evolutionThreshold"
+              value={form.evolutionThreshold}
+              onChange={(v) => set("evolutionThreshold", Math.max(1, Math.round(v)))}
+              step={1}
+              min={1}
+              help="After this many trades, each bot mutates one parameter and advances to the next generation"
+            />
+            <NumberField
+              label="Auto-Start Top N (scanner)"
+              id="autoStartTopN"
+              value={form.autoStartTopN}
+              onChange={(v) => set("autoStartTopN", Math.max(0, Math.round(v)))}
+              step={1}
+              min={0}
+              help="At 9:25 AM ET, auto-start this many top gap candidates (0 = disabled)"
             />
           </CardContent>
         </Card>

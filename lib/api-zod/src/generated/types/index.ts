@@ -7,14 +7,26 @@
  */
 
 export * from "./accountInfo";
+export * from "./autoStartResult";
 export * from "./botConfig";
 export * from "./botConfigBody";
+export * from "./botStats";
 export * from "./botStatus";
 export * from "./botStatusPhase";
+export * from "./childBot";
+export * from "./childBotConfig";
+export * from "./childBotConfigOverride";
+export * from "./childBotPhase";
+export * from "./createBotBody";
 export * from "./healthStatus";
 export * from "./listTradesParams";
+export * from "./okResponse";
 export * from "./position";
 export * from "./positionSide";
+export * from "./scanCandidate";
+export * from "./scanCandidateGapDirection";
+export * from "./scanRequest";
+export * from "./scanResult";
 export * from "./sessionState";
 export * from "./sessionStateBreakoutDirection";
 export * from "./sessionStatePhase";

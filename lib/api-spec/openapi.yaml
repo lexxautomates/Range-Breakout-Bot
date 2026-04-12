@@ -11,7 +11,11 @@ tags:
   - name: health
     description: Health operations
   - name: bot
-    description: Bot control operations
+    description: Bot control operations (legacy single-bot)
+  - name: bots
+    description: Multi-bot swarm operations
+  - name: scanner
+    description: Morning gap scanner
   - name: session
     description: Current trading session
   - name: trades
@@ -79,6 +83,155 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BotStatus"
+
+  /bots:
+    get:
+      operationId: listBots
+      tags: [bots]
+      summary: List all running child bots
+      responses:
+        "200":
+          description: List of child bots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChildBot"
+    post:
+      operationId: createBot
+      tags: [bots]
+      summary: Start a new child bot for a symbol
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBotBody"
+      responses:
+        "200":
+          description: Child bot started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChildBot"
+    delete:
+      operationId: stopAllBots
+      tags: [bots]
+      summary: Stop all running child bots
+      responses:
+        "200":
+          description: All bots stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  /bots/{id}:
+    get:
+      operationId: getBot
+      tags: [bots]
+      summary: Get a single child bot by id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Child bot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChildBot"
+        "404":
+          description: Not found
+    delete:
+      operationId: stopBot2
+      tags: [bots]
+      summary: Stop a single child bot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Bot stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "404":
+          description: Not found
+
+  /bots/{id}/offspring:
+    post:
+      operationId: spawnOffspring
+      tags: [bots]
+      summary: Spawn an evolved offspring of a child bot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Offspring bot started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChildBot"
+        "404":
+          description: Parent bot not found
+
+  /scanner/results:
+    get:
+      operationId: getScanResults
+      tags: [scanner]
+      summary: Get the latest cached scanner results
+      responses:
+        "200":
+          description: Scan results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanResult"
+
+  /scanner/run:
+    post:
+      operationId: runScan
+      tags: [scanner]
+      summary: Trigger a manual gap scan
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanRequest"
+      responses:
+        "200":
+          description: Scan results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanResult"
+
+  /scanner/auto-start:
+    post:
+      operationId: autoStartBots
+      tags: [scanner]
+      summary: Run scan and auto-start top N bots
+      responses:
+        "200":
+          description: Auto-start result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutoStartResult"
 
   /session/current:
     get:
@@ -203,6 +356,13 @@ paths:
 
 components:
   schemas:
+    OkResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+
     HealthStatus:
       type: object
       required: [status]
@@ -240,6 +400,199 @@ components:
       properties:
         symbol:
           type: string
+
+    CreateBotBody:
+      type: object
+      required: [symbol]
+      properties:
+        symbol:
+          type: string
+        config:
+          $ref: "#/components/schemas/ChildBotConfigOverride"
+
+    ChildBotConfigOverride:
+      type: object
+      properties:
+        openingRangeMinutes:
+          type: integer
+        riskPercent:
+          type: number
+        rewardRiskRatio:
+          type: number
+        requireVolumeConfirmation:
+          type: boolean
+        volumeMultiplier:
+          type: number
+        trailingStopEnabled:
+          type: boolean
+        trailingStopActivationR:
+          type: number
+        reEntryEnabled:
+          type: boolean
+        maxOrbWidthPercent:
+          type: number
+        minOrbWidthPercent:
+          type: number
+        breakoutWindowMinutes:
+          type: integer
+        useModerateRisk:
+          type: boolean
+
+    ChildBotConfig:
+      type: object
+      required: [openingRangeMinutes, riskPercent, rewardRiskRatio, requireVolumeConfirmation, volumeMultiplier, trailingStopEnabled, trailingStopActivationR, reEntryEnabled, maxOrbWidthPercent, minOrbWidthPercent, breakoutWindowMinutes, useModerateRisk]
+      properties:
+        openingRangeMinutes:
+          type: integer
+        riskPercent:
+          type: number
+        rewardRiskRatio:
+          type: number
+        requireVolumeConfirmation:
+          type: boolean
+        volumeMultiplier:
+          type: number
+        trailingStopEnabled:
+          type: boolean
+        trailingStopActivationR:
+          type: number
+        reEntryEnabled:
+          type: boolean
+        maxOrbWidthPercent:
+          type: number
+        minOrbWidthPercent:
+          type: number
+        breakoutWindowMinutes:
+          type: integer
+        useModerateRisk:
+          type: boolean
+
+    BotStats:
+      type: object
+      required: [totalTrades, wins, losses, totalPnl, avgRMultiple, winRate]
+      properties:
+        totalTrades:
+          type: integer
+        wins:
+          type: integer
+        losses:
+          type: integer
+        totalPnl:
+          type: number
+        avgRMultiple:
+          type: number
+        winRate:
+          type: number
+
+    ChildBot:
+      type: object
+      required: [id, symbol, generation, config, phase, session, startedAt, stats]
+      properties:
+        id:
+          type: string
+        dbId:
+          type: integer
+          nullable: true
+        symbol:
+          type: string
+        generation:
+          type: integer
+        parentId:
+          type: string
+          nullable: true
+        config:
+          $ref: "#/components/schemas/ChildBotConfig"
+        phase:
+          type: string
+          enum: [idle, waiting_open, building_range, watching, in_trade, closed]
+        session:
+          $ref: "#/components/schemas/SessionState"
+        startedAt:
+          type: string
+        stoppedAt:
+          type: string
+          nullable: true
+        lastUpdated:
+          type: string
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        stats:
+          $ref: "#/components/schemas/BotStats"
+
+    ScanCandidate:
+      type: object
+      required: [symbol, prevClose, open, currentPrice, gapPercent, gapDirection, volume, avgVolume, relativeVolume, recommended]
+      properties:
+        symbol:
+          type: string
+        prevClose:
+          type: number
+        open:
+          type: number
+        currentPrice:
+          type: number
+        gapPercent:
+          type: number
+        gapDirection:
+          type: string
+          enum: [up, down]
+        volume:
+          type: number
+        avgVolume:
+          type: number
+        relativeVolume:
+          type: number
+        recommended:
+          type: boolean
+
+    ScanResult:
+      type: object
+      required: [scannedAt, candidates, topN]
+      properties:
+        scannedAt:
+          type: string
+          nullable: true
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanCandidate"
+        topN:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanCandidate"
+
+    ScanRequest:
+      type: object
+      properties:
+        symbols:
+          type: array
+          items:
+            type: string
+        topN:
+          type: integer
+          default: 10
+        minGapPercent:
+          type: number
+          default: 0.5
+        minRelativeVolume:
+          type: number
+          default: 1.0
+
+    AutoStartResult:
+      type: object
+      required: [ok, topN]
+      properties:
+        ok:
+          type: boolean
+        scannedAt:
+          type: string
+          nullable: true
+        topN:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanCandidate"
 
     SessionState:
       type: object
@@ -299,6 +652,9 @@ components:
           type: boolean
         shortTradeUsed:
           type: boolean
+        qty:
+          type: number
+          nullable: true
 
     SessionSummary:
       type: object
@@ -331,6 +687,9 @@ components:
           type: integer
         symbol:
           type: string
+        botInstanceId:
+          type: integer
+          nullable: true
         direction:
           type: string
           enum: [long, short]
@@ -410,7 +769,7 @@ components:
 
     BotConfig:
       type: object
-      required: [id, openingRangeMinutes, riskPercent, rewardRiskRatio, requireVolumeConfirmation, volumeMultiplier, trailingStopEnabled, trailingStopActivationR, reEntryEnabled, maxOrbWidthPercent, minOrbWidthPercent, breakoutWindowMinutes, useModerateRisk, updatedAt]
+      required: [id, openingRangeMinutes, riskPercent, rewardRiskRatio, requireVolumeConfirmation, volumeMultiplier, trailingStopEnabled, trailingStopActivationR, reEntryEnabled, maxOrbWidthPercent, minOrbWidthPercent, breakoutWindowMinutes, useModerateRisk, evolutionThreshold, autoStartTopN, updatedAt]
       properties:
         id:
           type: integer
@@ -450,6 +809,12 @@ components:
         useModerateRisk:
           type: boolean
           description: Use midpoint as stop instead of opposite side of range
+        evolutionThreshold:
+          type: integer
+          description: Number of trades after which a bot evolves its parameters
+        autoStartTopN:
+          type: integer
+          description: Number of top gap-scan candidates to auto-start each morning (0 = disabled)
         updatedAt:
           type: string
 
@@ -480,6 +845,10 @@ components:
           type: integer
         useModerateRisk:
           type: boolean
+        evolutionThreshold:
+          type: integer
+        autoStartTopN:
+          type: integer
 
     AccountInfo:
       type: object

@@ -5,6 +5,10 @@
  * Opening Range Breakout (ORB) Trading Bot API
  * OpenAPI spec version: 0.1.0
  */
+export interface OkResponse {
+  ok: boolean;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -34,6 +38,61 @@ export interface BotStatus {
 export interface StartBotBody {
   symbol: string;
 }
+
+export interface ChildBotConfigOverride {
+  openingRangeMinutes?: number;
+  riskPercent?: number;
+  rewardRiskRatio?: number;
+  requireVolumeConfirmation?: boolean;
+  volumeMultiplier?: number;
+  trailingStopEnabled?: boolean;
+  trailingStopActivationR?: number;
+  reEntryEnabled?: boolean;
+  maxOrbWidthPercent?: number;
+  minOrbWidthPercent?: number;
+  breakoutWindowMinutes?: number;
+  useModerateRisk?: boolean;
+}
+
+export interface CreateBotBody {
+  symbol: string;
+  config?: ChildBotConfigOverride;
+}
+
+export interface ChildBotConfig {
+  openingRangeMinutes: number;
+  riskPercent: number;
+  rewardRiskRatio: number;
+  requireVolumeConfirmation: boolean;
+  volumeMultiplier: number;
+  trailingStopEnabled: boolean;
+  trailingStopActivationR: number;
+  reEntryEnabled: boolean;
+  maxOrbWidthPercent: number;
+  minOrbWidthPercent: number;
+  breakoutWindowMinutes: number;
+  useModerateRisk: boolean;
+}
+
+export interface BotStats {
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  totalPnl: number;
+  avgRMultiple: number;
+  winRate: number;
+}
+
+export type ChildBotPhase = (typeof ChildBotPhase)[keyof typeof ChildBotPhase];
+
+export const ChildBotPhase = {
+  idle: "idle",
+  waiting_open: "waiting_open",
+  building_range: "building_range",
+  watching: "watching",
+  in_trade: "in_trade",
+  closed: "closed",
+} as const;
 
 export type SessionStatePhase =
   (typeof SessionStatePhase)[keyof typeof SessionStatePhase];
@@ -77,6 +136,63 @@ export interface SessionState {
   currentPnl?: number | null;
   longTradeUsed?: boolean;
   shortTradeUsed?: boolean;
+  qty?: number | null;
+}
+
+export interface ChildBot {
+  id: string;
+  dbId?: number | null;
+  symbol: string;
+  generation: number;
+  parentId?: string | null;
+  config: ChildBotConfig;
+  phase: ChildBotPhase;
+  session: SessionState;
+  startedAt: string;
+  stoppedAt?: string | null;
+  lastUpdated?: string | null;
+  error?: string | null;
+  stats: BotStats;
+}
+
+export type ScanCandidateGapDirection =
+  (typeof ScanCandidateGapDirection)[keyof typeof ScanCandidateGapDirection];
+
+export const ScanCandidateGapDirection = {
+  up: "up",
+  down: "down",
+} as const;
+
+export interface ScanCandidate {
+  symbol: string;
+  prevClose: number;
+  open: number;
+  currentPrice: number;
+  gapPercent: number;
+  gapDirection: ScanCandidateGapDirection;
+  volume: number;
+  avgVolume: number;
+  relativeVolume: number;
+  recommended: boolean;
+}
+
+export interface ScanResult {
+  scannedAt: string | null;
+  candidates: ScanCandidate[];
+  topN: ScanCandidate[];
+}
+
+export interface ScanRequest {
+  symbols?: string[];
+  topN?: number;
+  minGapPercent?: number;
+  minRelativeVolume?: number;
+}
+
+export interface AutoStartResult {
+  ok: boolean;
+  scannedAt?: string | null;
+  topN: ScanCandidate[];
 }
 
 export interface SessionSummary {
@@ -109,6 +225,7 @@ export const TradeOutcome = {
 export interface Trade {
   id: number;
   symbol: string;
+  botInstanceId?: number | null;
   direction: TradeDirection;
   entryPrice: number;
   exitPrice: number;
@@ -172,6 +289,10 @@ export interface BotConfig {
   breakoutWindowMinutes: number;
   /** Use midpoint as stop instead of opposite side of range */
   useModerateRisk: boolean;
+  /** Number of trades after which a bot evolves its parameters */
+  evolutionThreshold: number;
+  /** Number of top gap-scan candidates to auto-start each morning (0 = disabled) */
+  autoStartTopN: number;
   updatedAt: string;
 }
 
@@ -188,6 +309,8 @@ export interface BotConfigBody {
   minOrbWidthPercent?: number;
   breakoutWindowMinutes?: number;
   useModerateRisk?: boolean;
+  evolutionThreshold?: number;
+  autoStartTopN?: number;
 }
 
 export interface AccountInfo {
