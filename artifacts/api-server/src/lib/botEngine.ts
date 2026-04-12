@@ -749,14 +749,22 @@ export async function startBot(symbol: string): Promise<void> {
   botState.session = bot.session;
 
   botState.loopTimer = setInterval(() => {
-    if (legacyBotId) {
-      const b = registry.bots.get(legacyBotId);
-      if (b) {
-        botState.phase = b.session.phase as BotPhase;
-        botState.lastUpdated = b.lastUpdated;
-        botState.error = b.error;
-        botState.session = b.session;
-      }
+    if (!legacyBotId) return;
+    const b = registry.bots.get(legacyBotId);
+    if (b) {
+      botState.phase = b.session.phase as BotPhase;
+      botState.lastUpdated = b.lastUpdated;
+      botState.error = b.error;
+      botState.session = b.session;
+    } else {
+      // Child bot has self-stopped (e.g. end-of-day close) — sync legacy state
+      clearInterval(botState.loopTimer!);
+      botState.loopTimer = null;
+      botState.running = false;
+      botState.phase = "idle";
+      botState.stoppedAt = new Date().toISOString();
+      legacyBotId = null;
+      logger.info("Legacy bot state reset after child self-stop");
     }
   }, 5000);
 
