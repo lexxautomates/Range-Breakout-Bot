@@ -16,11 +16,13 @@ export async function runMorningScanAndStart(): Promise<void> {
     return;
   }
 
-  const existing = listChildBots();
-  if (existing.length > 0) {
+  const activeBots = listChildBots().filter(
+    (b) => b.session.phase !== "closed" && b.loopTimer !== null,
+  );
+  if (activeBots.length > 0) {
     logger.info(
-      { existingCount: existing.length },
-      "Bots already running — skipping auto-start (will not disrupt active trading)",
+      { activeCount: activeBots.length },
+      "Active bots running — skipping auto-start (will not disrupt active trading)",
     );
     return;
   }
@@ -46,9 +48,9 @@ export async function forceAutoStartFromScan(): Promise<void> {
   const config = await getGlobalConfig();
   const topN = config.autoStartTopN <= 0 ? 5 : config.autoStartTopN;
 
-  const existing = listChildBots();
+  const existing = listChildBots().filter((b) => b.loopTimer !== null);
   if (existing.length > 0) {
-    logger.info({ count: existing.length }, "Stopping existing bots for forced auto-start");
+    logger.info({ count: existing.length }, "Stopping active bots for forced auto-start");
     await stopAllChildBots();
   }
 

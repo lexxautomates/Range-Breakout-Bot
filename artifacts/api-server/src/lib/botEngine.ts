@@ -639,6 +639,21 @@ export async function startChildBot(
   bot.loopTimer = setInterval(async () => {
     const fresh = await getGlobalConfig();
     await runChildBotLoop(bot, fresh.evolutionThreshold ?? 5);
+    // Auto-stop when bot reaches terminal closed phase (end of trading day)
+    if (bot.session.phase === "closed" && bot.loopTimer) {
+      clearInterval(bot.loopTimer);
+      bot.loopTimer = null;
+      bot.stoppedAt = new Date().toISOString();
+      lastMutation.delete(botId);
+      registry.bots.delete(botId);
+      logger.info({ botId, symbol: sym }, "Child bot self-stopped on closed phase");
+      if (bot.dbId) {
+        await db
+          .update(botInstancesTable)
+          .set({ stoppedAt: new Date() })
+          .where(eq(botInstancesTable.id, bot.dbId));
+      }
+    }
   }, 30000);
 
   logger.info({ botId, symbol: sym, parentId, generation }, "Child bot started");
