@@ -40,6 +40,8 @@ The `.replit` file maps only these ports externally:
 - `artifacts/api-server/src/lib/scanner.ts` — morning gap scanner (Alpaca snapshots, score ranking)
 - `artifacts/api-server/src/lib/orchestrator.ts` — 9:25 AM scheduler, auto-start guard, top-performer spawn
 - `artifacts/api-server/src/lib/alpaca.ts` — Alpaca client setup
+- `artifacts/api-server/src/lib/broker.ts` — Unified broker interface (IBroker); implementations: AlpacaBroker, IbkrBroker, CryptoDotComBroker
+- `artifacts/api-server/src/lib/llmAdvisor.ts` — Pluggable LLM AI advisor; providers: claude, openrouter, ollama (Hermes etc); called before every trade entry
 - `artifacts/api-server/src/routes/index.ts` — all routes wired
 - `lib/db/src/schema/index.ts` — trades + bot_config + bot_instances DB schema
 - `lib/api-spec/openapi.yaml` — full API spec

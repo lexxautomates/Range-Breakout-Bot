@@ -876,7 +876,7 @@ export const GetTradeStatsResponse = zod.object({
 /**
  * @summary Get current bot configuration
  */
-export const GetConfigResponse = zod.object({
+const configResponseFields = {
   id: zod.number(),
   openingRangeMinutes: zod
     .number()
@@ -920,8 +920,20 @@ export const GetConfigResponse = zod.object({
     .describe(
       "Number of top gap-scan candidates to auto-start each morning (0 = disabled)",
     ),
+  llmProvider: zod.string().describe("AI advisor provider (none/claude/openrouter/ollama)"),
+  llmModel: zod.string().describe("Model identifier for the selected LLM provider"),
+  llmApiKey: zod.string().describe("API key for LLM provider (stored server-side)"),
+  llmBaseUrl: zod.string().describe("Custom base URL for Ollama or OpenRouter"),
+  llmTemperature: zod.number().describe("LLM sampling temperature (0-2)"),
+  llmConfidenceThreshold: zod.number().describe("Minimum LLM confidence to allow a trade (0-1)"),
+  defaultBroker: zod.string().describe("Active broker: alpaca / ibkr / cryptocom"),
+  ibkrBaseUrl: zod.string().describe("IBKR Client Portal Web API base URL"),
+  cryptocomApiKey: zod.string().describe("Crypto.com API key"),
+  cryptocomApiSecret: zod.string().describe("Crypto.com API secret"),
   updatedAt: zod.string(),
-});
+};
+
+export const GetConfigResponse = zod.object(configResponseFields);
 
 /**
  * @summary Update bot configuration
@@ -941,54 +953,19 @@ export const UpdateConfigBody = zod.object({
   useModerateRisk: zod.boolean().optional(),
   evolutionThreshold: zod.number().optional(),
   autoStartTopN: zod.number().optional(),
+  llmProvider: zod.enum(["none", "claude", "openrouter", "ollama"]).optional(),
+  llmModel: zod.string().optional(),
+  llmApiKey: zod.string().optional(),
+  llmBaseUrl: zod.string().optional(),
+  llmTemperature: zod.number().min(0).max(2).optional(),
+  llmConfidenceThreshold: zod.number().min(0).max(1).optional(),
+  defaultBroker: zod.enum(["alpaca", "ibkr", "cryptocom"]).optional(),
+  ibkrBaseUrl: zod.string().optional(),
+  cryptocomApiKey: zod.string().optional(),
+  cryptocomApiSecret: zod.string().optional(),
 });
 
-export const UpdateConfigResponse = zod.object({
-  id: zod.number(),
-  openingRangeMinutes: zod
-    .number()
-    .describe("Minutes after open to define opening range (default 15)"),
-  riskPercent: zod
-    .number()
-    .describe("Max risk per trade as % of account equity (e.g. 1.0 = 1%)"),
-  rewardRiskRatio: zod
-    .number()
-    .describe("Target profit as multiple of risk (e.g. 2.0 = 2R)"),
-  requireVolumeConfirmation: zod
-    .boolean()
-    .describe("Require above-average volume for breakout confirmation"),
-  volumeMultiplier: zod
-    .number()
-    .describe("Volume must be X times average to confirm (e.g. 1.5)"),
-  trailingStopEnabled: zod
-    .boolean()
-    .describe("Enable trailing stop after 1R profit"),
-  trailingStopActivationR: zod
-    .number()
-    .describe("R-multiple at which trailing stop activates (default 1.0)"),
-  reEntryEnabled: zod.boolean().describe("Allow re-entry after stopped out"),
-  maxOrbWidthPercent: zod
-    .number()
-    .describe("Skip trade if ORB width > this % of price"),
-  minOrbWidthPercent: zod
-    .number()
-    .describe("Skip trade if ORB width < this % of price"),
-  breakoutWindowMinutes: zod
-    .number()
-    .describe("Minutes after ORB window closes to allow breakout entries"),
-  useModerateRisk: zod
-    .boolean()
-    .describe("Use midpoint as stop instead of opposite side of range"),
-  evolutionThreshold: zod
-    .number()
-    .describe("Number of trades after which a bot evolves its parameters"),
-  autoStartTopN: zod
-    .number()
-    .describe(
-      "Number of top gap-scan candidates to auto-start each morning (0 = disabled)",
-    ),
-  updatedAt: zod.string(),
-});
+export const UpdateConfigResponse = zod.object(configResponseFields);
 
 /**
  * @summary Get Alpaca account info (equity, cash, buying power)

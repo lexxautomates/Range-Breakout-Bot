@@ -63,6 +63,16 @@ export const botConfigTable = pgTable("bot_config", {
   useModerateRisk: boolean("use_moderate_risk").notNull().default(false),
   evolutionThreshold: integer("evolution_threshold").notNull().default(5),
   autoStartTopN: integer("auto_start_top_n").notNull().default(0),
+  llmProvider: text("llm_provider").notNull().default("none"),
+  llmModel: text("llm_model").notNull().default(""),
+  llmApiKey: text("llm_api_key").notNull().default(""),
+  llmBaseUrl: text("llm_base_url").notNull().default(""),
+  llmTemperature: real("llm_temperature").notNull().default(0.2),
+  llmConfidenceThreshold: real("llm_confidence_threshold").notNull().default(0.6),
+  defaultBroker: text("default_broker").notNull().default("alpaca"),
+  ibkrBaseUrl: text("ibkr_base_url").notNull().default(""),
+  cryptocomApiKey: text("cryptocom_api_key").notNull().default(""),
+  cryptocomApiSecret: text("cryptocom_api_secret").notNull().default(""),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

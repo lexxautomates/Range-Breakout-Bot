@@ -10,6 +10,9 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetConfigQueryKey } from "@workspace/api-client-react";
 
+type LlmProvider = "none" | "claude" | "openrouter" | "ollama";
+type BrokerName = "alpaca" | "ibkr" | "cryptocom";
+
 interface ConfigForm {
   openingRangeMinutes: number;
   riskPercent: number;
@@ -25,6 +28,16 @@ interface ConfigForm {
   useModerateRisk: boolean;
   evolutionThreshold: number;
   autoStartTopN: number;
+  llmProvider: LlmProvider;
+  llmModel: string;
+  llmApiKey: string;
+  llmBaseUrl: string;
+  llmTemperature: number;
+  llmConfidenceThreshold: number;
+  defaultBroker: BrokerName;
+  ibkrBaseUrl: string;
+  cryptocomApiKey: string;
+  cryptocomApiSecret: string;
 }
 
 function NumberField({ label, id, value, onChange, step = 0.1, min = 0, help }: {
@@ -53,6 +66,31 @@ function NumberField({ label, id, value, onChange, step = 0.1, min = 0, help }: 
   );
 }
 
+function TextField({ label, id, value, onChange, placeholder, help, type = "text" }: {
+  label: string;
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  help?: string;
+  type?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-sm font-medium">{label}</Label>
+      <Input
+        id={id}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="font-mono"
+      />
+      {help && <p className="text-xs text-muted-foreground">{help}</p>}
+    </div>
+  );
+}
+
 function ToggleField({ label, id, checked, onChange, help }: {
   label: string;
   id: string;
@@ -70,6 +108,69 @@ function ToggleField({ label, id, checked, onChange, help }: {
     </div>
   );
 }
+
+function SelectField({ label, id, value, onChange, options, help }: {
+  label: string;
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  help?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-sm font-medium">{label}</Label>
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      {help && <p className="text-xs text-muted-foreground">{help}</p>}
+    </div>
+  );
+}
+
+const LLM_PROVIDER_OPTIONS: { value: LlmProvider; label: string }[] = [
+  { value: "none", label: "None (rule-based only)" },
+  { value: "claude", label: "Claude (Anthropic)" },
+  { value: "openrouter", label: "OpenRouter (Hermes, GPT-4, etc.)" },
+  { value: "ollama", label: "Ollama (local LLM)" },
+];
+
+const CLAUDE_MODEL_OPTIONS = [
+  "claude-3-5-haiku-20241022",
+  "claude-3-5-sonnet-20241022",
+  "claude-3-opus-20240229",
+];
+
+const OPENROUTER_MODEL_SUGGESTIONS = [
+  "nousresearch/hermes-3-llama-3.1-70b",
+  "nousresearch/hermes-3-llama-3.1-405b",
+  "openai/gpt-4o-mini",
+  "openai/gpt-4o",
+  "anthropic/claude-3.5-haiku",
+  "meta-llama/llama-3.1-70b-instruct",
+];
+
+const OLLAMA_MODEL_SUGGESTIONS = [
+  "hermes3",
+  "hermes3:70b",
+  "llama3.1",
+  "llama3.1:70b",
+  "mistral",
+  "phi3",
+];
+
+const BROKER_OPTIONS: { value: BrokerName; label: string }[] = [
+  { value: "alpaca", label: "Alpaca (paper/live stocks)" },
+  { value: "ibkr", label: "IBKR (Interactive Brokers)" },
+  { value: "cryptocom", label: "Crypto.com (spot crypto)" },
+];
 
 export default function Config() {
   const { toast } = useToast();
@@ -106,6 +207,16 @@ export default function Config() {
         useModerateRisk: config.useModerateRisk,
         evolutionThreshold: config.evolutionThreshold,
         autoStartTopN: config.autoStartTopN,
+        llmProvider: (config.llmProvider as LlmProvider) || "none",
+        llmModel: config.llmModel || "",
+        llmApiKey: config.llmApiKey || "",
+        llmBaseUrl: config.llmBaseUrl || "",
+        llmTemperature: config.llmTemperature ?? 0.2,
+        llmConfidenceThreshold: config.llmConfidenceThreshold ?? 0.6,
+        defaultBroker: (config.defaultBroker as BrokerName) || "alpaca",
+        ibkrBaseUrl: config.ibkrBaseUrl || "",
+        cryptocomApiKey: config.cryptocomApiKey || "",
+        cryptocomApiSecret: config.cryptocomApiSecret || "",
       });
     }
   }, [config]);
@@ -131,6 +242,15 @@ export default function Config() {
     );
   }
 
+  const modelSuggestions =
+    form.llmProvider === "claude"
+      ? CLAUDE_MODEL_OPTIONS
+      : form.llmProvider === "openrouter"
+      ? OPENROUTER_MODEL_SUGGESTIONS
+      : form.llmProvider === "ollama"
+      ? OLLAMA_MODEL_SUGGESTIONS
+      : [];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -141,6 +261,179 @@ export default function Config() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+
+        {/* ── AI Advisor ─────────────────────────────────────────────── */}
+        <Card className="bg-card border-border">
+          <CardHeader>
+            <CardTitle className="text-sm text-muted-foreground uppercase tracking-wider font-medium">AI Advisor</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <SelectField
+              label="LLM Provider"
+              id="llmProvider"
+              value={form.llmProvider}
+              onChange={(v) => set("llmProvider", v as LlmProvider)}
+              options={LLM_PROVIDER_OPTIONS}
+              help="Select the AI model that evaluates trade setups before entry"
+            />
+
+            {form.llmProvider !== "none" && (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="llmModel" className="text-sm font-medium">Model</Label>
+                  <Input
+                    id="llmModel"
+                    type="text"
+                    value={form.llmModel}
+                    onChange={(e) => set("llmModel", e.target.value)}
+                    placeholder={modelSuggestions[0] ?? "model name"}
+                    list="model-suggestions"
+                    className="font-mono"
+                  />
+                  <datalist id="model-suggestions">
+                    {modelSuggestions.map((m) => <option key={m} value={m} />)}
+                  </datalist>
+                  <p className="text-xs text-muted-foreground">
+                    {form.llmProvider === "claude" && "e.g. claude-3-5-haiku-20241022 (fastest/cheapest) or claude-3-5-sonnet-20241022"}
+                    {form.llmProvider === "openrouter" && "e.g. nousresearch/hermes-3-llama-3.1-70b — see openrouter.ai/models"}
+                    {form.llmProvider === "ollama" && "e.g. hermes3 — must be pulled via: ollama pull hermes3"}
+                  </p>
+                </div>
+
+                {(form.llmProvider === "claude" || form.llmProvider === "openrouter") && (
+                  <TextField
+                    label="API Key"
+                    id="llmApiKey"
+                    value={form.llmApiKey}
+                    onChange={(v) => set("llmApiKey", v)}
+                    type="password"
+                    placeholder="sk-..."
+                    help={
+                      form.llmProvider === "claude"
+                        ? "Anthropic API key — get one at console.anthropic.com"
+                        : "OpenRouter API key — get one at openrouter.ai/keys"
+                    }
+                  />
+                )}
+
+                {(form.llmProvider === "openrouter" || form.llmProvider === "ollama") && (
+                  <TextField
+                    label="Base URL"
+                    id="llmBaseUrl"
+                    value={form.llmBaseUrl}
+                    onChange={(v) => set("llmBaseUrl", v)}
+                    placeholder={
+                      form.llmProvider === "openrouter"
+                        ? "https://openrouter.ai/api/v1"
+                        : "http://localhost:11434"
+                    }
+                    help={
+                      form.llmProvider === "ollama"
+                        ? "Ollama server URL — default is http://localhost:11434"
+                        : "Leave blank to use the default OpenRouter endpoint"
+                    }
+                  />
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <NumberField
+                    label="Temperature"
+                    id="llmTemperature"
+                    value={form.llmTemperature}
+                    onChange={(v) => set("llmTemperature", Math.min(2, Math.max(0, v)))}
+                    step={0.05}
+                    min={0}
+                    help="Lower = more deterministic (0.2 recommended)"
+                  />
+                  <NumberField
+                    label="Confidence Threshold"
+                    id="llmConfidenceThreshold"
+                    value={form.llmConfidenceThreshold}
+                    onChange={(v) => set("llmConfidenceThreshold", Math.min(1, Math.max(0, v)))}
+                    step={0.05}
+                    min={0}
+                    help="Minimum AI confidence (0–1) required to approve a trade"
+                  />
+                </div>
+
+                <div className="rounded-md bg-muted/50 border border-border px-4 py-3 text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium text-foreground">How it works</p>
+                  <p>Before every trade entry, the bot sends a structured prompt to the selected AI model describing the ORB setup (symbol, direction, ORB width, volume ratio, R:R, etc.). The model replies with an approval decision and confidence score. If confidence is below the threshold, the trade is skipped and logged.</p>
+                  <p>Set provider to <span className="font-mono">none</span> to disable AI gating (bots trade purely by rules).</p>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Broker ─────────────────────────────────────────────────── */}
+        <Card className="bg-card border-border">
+          <CardHeader>
+            <CardTitle className="text-sm text-muted-foreground uppercase tracking-wider font-medium">Broker</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <SelectField
+              label="Active Broker"
+              id="defaultBroker"
+              value={form.defaultBroker}
+              onChange={(v) => set("defaultBroker", v as BrokerName)}
+              options={BROKER_OPTIONS}
+              help="All bots will route orders through this broker"
+            />
+
+            {form.defaultBroker === "ibkr" && (
+              <>
+                <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-4 py-3 text-xs text-amber-200 space-y-1">
+                  <p className="font-medium">IBKR Setup Required</p>
+                  <p>Run <span className="font-mono">IB Gateway</span> or <span className="font-mono">TWS</span> locally and enable the Client Portal Web API. The bot connects to it via the URL below. IBKR requires manual login each session.</p>
+                </div>
+                <TextField
+                  label="IBKR Client Portal URL"
+                  id="ibkrBaseUrl"
+                  value={form.ibkrBaseUrl}
+                  onChange={(v) => set("ibkrBaseUrl", v)}
+                  placeholder="https://localhost:5000/v1/api"
+                  help="Base URL for the IBKR Client Portal Web API (default: https://localhost:5000/v1/api)"
+                />
+              </>
+            )}
+
+            {form.defaultBroker === "cryptocom" && (
+              <>
+                <div className="rounded-md bg-blue-500/10 border border-blue-500/30 px-4 py-3 text-xs text-blue-200 space-y-1">
+                  <p className="font-medium">Crypto.com Exchange API</p>
+                  <p>Create an API key at <span className="font-mono">crypto.com/exchange</span> → Settings → API Management. Enable Spot Trading permissions. Note: this connects to the live exchange — use a sub-account for safety.</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <TextField
+                    label="Crypto.com API Key"
+                    id="cryptocomApiKey"
+                    value={form.cryptocomApiKey}
+                    onChange={(v) => set("cryptocomApiKey", v)}
+                    type="password"
+                    placeholder="API key"
+                  />
+                  <TextField
+                    label="Crypto.com API Secret"
+                    id="cryptocomApiSecret"
+                    value={form.cryptocomApiSecret}
+                    onChange={(v) => set("cryptocomApiSecret", v)}
+                    type="password"
+                    placeholder="API secret"
+                  />
+                </div>
+              </>
+            )}
+
+            {form.defaultBroker === "alpaca" && (
+              <div className="rounded-md bg-muted/50 border border-border px-4 py-3 text-xs text-muted-foreground">
+                Using Alpaca paper trading account. API credentials are loaded from environment variables <span className="font-mono">ALPACA_API_KEY</span> and <span className="font-mono">ALPACA_API_SECRET</span>.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Opening Range ──────────────────────────────────────────── */}
         <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="text-sm text-muted-foreground uppercase tracking-wider font-medium">Opening Range</CardTitle>
@@ -185,6 +478,7 @@ export default function Config() {
           </CardContent>
         </Card>
 
+        {/* ── Risk Management ────────────────────────────────────────── */}
         <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="text-sm text-muted-foreground uppercase tracking-wider font-medium">Risk Management</CardTitle>
@@ -220,6 +514,7 @@ export default function Config() {
           </CardContent>
         </Card>
 
+        {/* ── Volume Confirmation ────────────────────────────────────── */}
         <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="text-sm text-muted-foreground uppercase tracking-wider font-medium">Volume Confirmation</CardTitle>
@@ -246,6 +541,7 @@ export default function Config() {
           </CardContent>
         </Card>
 
+        {/* ── Advanced ───────────────────────────────────────────────── */}
         <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="text-sm text-muted-foreground uppercase tracking-wider font-medium">Advanced</CardTitle>
@@ -279,6 +575,7 @@ export default function Config() {
           </CardContent>
         </Card>
 
+        {/* ── Swarm & Evolution ──────────────────────────────────────── */}
         <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="text-sm text-muted-foreground uppercase tracking-wider font-medium">Swarm & Evolution</CardTitle>

@@ -1,4 +1,4 @@
-import { alpaca, apiKey, apiSecret, dataBaseUrl } from "./alpaca.js";
+import { apiKey, apiSecret, dataBaseUrl } from "./alpaca.js";
 import {
   registry,
   botState,
@@ -11,6 +11,8 @@ import { db } from "@workspace/db";
 import { tradesTable, botConfigTable, botInstancesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
+import { askLlmAdvisor, type LlmConfig } from "./llmAdvisor.js";
+import { createBroker, type BrokerCredentials } from "./broker.js";
 
 
 
@@ -85,32 +87,23 @@ async function getAverageVolume(symbol: string, days = 10): Promise<number> {
   }
 }
 
-async function placeMarketOrder(
-  symbol: string,
-  side: "buy" | "sell",
-  qty: number,
-): Promise<string | null> {
-  try {
-    const order = await alpaca.createOrder({
-      symbol,
-      qty,
-      side,
-      type: "market",
-      time_in_force: "day",
-    });
-    return (order as { id: string }).id;
-  } catch (err) {
-    logger.error({ err }, "Failed to place order");
-    return null;
-  }
+function getBrokerCredentials(cfg: Awaited<ReturnType<typeof getGlobalConfig>>): BrokerCredentials {
+  return {
+    broker: (cfg.defaultBroker as BrokerCredentials["broker"]) ?? "alpaca",
+    baseUrl: cfg.ibkrBaseUrl || undefined,
+    apiKey: cfg.cryptocomApiKey || undefined,
+    apiSecret: cfg.cryptocomApiSecret || undefined,
+  };
 }
 
-async function closePosition(symbol: string): Promise<void> {
-  try {
-    await alpaca.closePosition(symbol);
-  } catch (err) {
-    logger.error({ err }, "Failed to close position");
-  }
+function getLlmConfig(cfg: Awaited<ReturnType<typeof getGlobalConfig>>): LlmConfig {
+  return {
+    provider: (cfg.llmProvider as LlmConfig["provider"]) ?? "none",
+    model: cfg.llmModel || "",
+    apiKey: cfg.llmApiKey || undefined,
+    baseUrl: cfg.llmBaseUrl || undefined,
+    temperature: cfg.llmTemperature ?? 0.2,
+  };
 }
 
 
@@ -335,10 +328,19 @@ async function recordTrade(
 
 
 
-async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): Promise<void> {
+async function runChildBotLoop(
+  bot: ChildBotState,
+  evolutionThreshold: number,
+  globalCfg?: Awaited<ReturnType<typeof getGlobalConfig>>,
+): Promise<void> {
   const session = bot.session;
   const config = bot.config;
   const et = getEasternTime();
+
+  const cfg = globalCfg ?? (await getGlobalConfig());
+  const broker = createBroker(getBrokerCredentials(cfg));
+  const llmCfg = getLlmConfig(cfg);
+  const llmConfidenceThreshold = cfg.llmConfidenceThreshold ?? 0.6;
 
   try {
     const minsAfterOpen = getMinutesAfterOpen(et);
@@ -347,7 +349,7 @@ async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): 
     if (!inMarket) {
       if (minsAfterOpen >= 0) {
         if (session.phase === "in_trade") {
-          await closePosition(session.symbol);
+          await broker.closePosition(session.symbol);
           if (session.currentPrice && session.entryPrice && session.qty) {
             await recordTrade(
               bot,
@@ -445,22 +447,55 @@ async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): 
         const riskPerShare = price - stopPrice;
         const targetPrice = price + riskPerShare * config.rewardRiskRatio;
 
-        const account = await alpaca.getAccount() as { equity: string };
-        const equity = parseFloat(account.equity);
-        const riskDollars = equity * (config.riskPercent / 100);
+        const acct = await broker.getAccount();
+        const riskDollars = acct.equity * (config.riskPercent / 100);
         const qty = Math.max(1, Math.floor(riskDollars / riskPerShare));
 
-        const orderId = await placeMarketOrder(session.symbol, "buy", qty);
-        if (orderId) {
-          session.breakoutDirection = "long";
-          session.entryPrice = price;
-          session.stopPrice = stopPrice;
-          session.targetPrice = targetPrice;
-          session.qty = qty;
-          session.alpacaOrderId = orderId;
-          session.phase = "in_trade";
-          session.longTradeUsed = true;
-          logger.info({ botId: bot.id, symbol: bot.symbol, price, stopPrice, targetPrice, qty }, "Long breakout entry");
+        const orbWidthPct = session.orbHigh && session.orbLow
+          ? ((session.orbHigh - session.orbLow) / price) * 100
+          : 0;
+
+        const advice = await askLlmAdvisor(
+          {
+            symbol: session.symbol,
+            direction: "long",
+            price,
+            orbHigh: session.orbHigh,
+            orbLow: session.orbLow,
+            orbWidthPct,
+            volumeRatio: session.volumeRatio,
+            rewardRiskRatio: config.rewardRiskRatio,
+            stopPrice,
+            targetPrice,
+            riskPerShare,
+            riskDollars,
+            generation: bot.generation,
+            recentRMultiples: bot.recentRMultiples,
+          },
+          llmCfg,
+        );
+
+        if (!advice.approved || advice.confidence < llmConfidenceThreshold) {
+          logger.info(
+            { botId: bot.id, symbol: bot.symbol, advice },
+            "LLM advisor vetoed long entry",
+          );
+        } else {
+          const orderId = await broker.placeMarketOrder(session.symbol, "buy", qty);
+          if (orderId) {
+            session.breakoutDirection = "long";
+            session.entryPrice = price;
+            session.stopPrice = stopPrice;
+            session.targetPrice = targetPrice;
+            session.qty = qty;
+            session.alpacaOrderId = orderId;
+            session.phase = "in_trade";
+            session.longTradeUsed = true;
+            logger.info(
+              { botId: bot.id, symbol: bot.symbol, price, stopPrice, targetPrice, qty, llmReasoning: advice.reasoning },
+              "Long breakout entry",
+            );
+          }
         }
       } else if (price < session.orbLow && canShort && volOk) {
         const stopPrice = config.useModerateRisk
@@ -469,22 +504,55 @@ async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): 
         const riskPerShare = stopPrice - price;
         const targetPrice = price - riskPerShare * config.rewardRiskRatio;
 
-        const account = await alpaca.getAccount() as { equity: string };
-        const equity = parseFloat(account.equity);
-        const riskDollars = equity * (config.riskPercent / 100);
+        const acct = await broker.getAccount();
+        const riskDollars = acct.equity * (config.riskPercent / 100);
         const qty = Math.max(1, Math.floor(riskDollars / riskPerShare));
 
-        const orderId = await placeMarketOrder(session.symbol, "sell", qty);
-        if (orderId) {
-          session.breakoutDirection = "short";
-          session.entryPrice = price;
-          session.stopPrice = stopPrice;
-          session.targetPrice = targetPrice;
-          session.qty = qty;
-          session.alpacaOrderId = orderId;
-          session.phase = "in_trade";
-          session.shortTradeUsed = true;
-          logger.info({ botId: bot.id, symbol: bot.symbol, price, stopPrice, targetPrice, qty }, "Short breakout entry");
+        const orbWidthPct = session.orbHigh && session.orbLow
+          ? ((session.orbHigh - session.orbLow) / price) * 100
+          : 0;
+
+        const advice = await askLlmAdvisor(
+          {
+            symbol: session.symbol,
+            direction: "short",
+            price,
+            orbHigh: session.orbHigh,
+            orbLow: session.orbLow,
+            orbWidthPct,
+            volumeRatio: session.volumeRatio,
+            rewardRiskRatio: config.rewardRiskRatio,
+            stopPrice,
+            targetPrice,
+            riskPerShare,
+            riskDollars,
+            generation: bot.generation,
+            recentRMultiples: bot.recentRMultiples,
+          },
+          llmCfg,
+        );
+
+        if (!advice.approved || advice.confidence < llmConfidenceThreshold) {
+          logger.info(
+            { botId: bot.id, symbol: bot.symbol, advice },
+            "LLM advisor vetoed short entry",
+          );
+        } else {
+          const orderId = await broker.placeMarketOrder(session.symbol, "sell", qty);
+          if (orderId) {
+            session.breakoutDirection = "short";
+            session.entryPrice = price;
+            session.stopPrice = stopPrice;
+            session.targetPrice = targetPrice;
+            session.qty = qty;
+            session.alpacaOrderId = orderId;
+            session.phase = "in_trade";
+            session.shortTradeUsed = true;
+            logger.info(
+              { botId: bot.id, symbol: bot.symbol, price, stopPrice, targetPrice, qty, llmReasoning: advice.reasoning },
+              "Short breakout entry",
+            );
+          }
         }
       }
     } else if (session.phase === "in_trade") {
@@ -526,7 +594,7 @@ async function runChildBotLoop(bot: ChildBotState, evolutionThreshold: number): 
       }
 
       if (exitReason) {
-        await closePosition(session.symbol);
+        await broker.closePosition(session.symbol);
         await recordTrade(
           bot,
           {
@@ -635,10 +703,10 @@ export async function startChildBot(
 
   const evolutionThreshold = globalConfig.evolutionThreshold ?? 5;
 
-  await runChildBotLoop(bot, evolutionThreshold);
+  await runChildBotLoop(bot, evolutionThreshold, globalConfig);
   bot.loopTimer = setInterval(async () => {
     const fresh = await getGlobalConfig();
-    await runChildBotLoop(bot, fresh.evolutionThreshold ?? 5);
+    await runChildBotLoop(bot, fresh.evolutionThreshold ?? 5, fresh);
     // Auto-stop when bot reaches terminal closed phase (end of trading day)
     if (bot.session.phase === "closed" && bot.loopTimer) {
       clearInterval(bot.loopTimer);
@@ -671,7 +739,9 @@ export async function stopChildBot(botId: string): Promise<boolean> {
   bot.stoppedAt = new Date().toISOString();
 
   if (bot.session.phase === "in_trade") {
-    await closePosition(bot.symbol);
+    const cfg = await getGlobalConfig();
+    const broker = createBroker(getBrokerCredentials(cfg));
+    await broker.closePosition(bot.symbol);
   }
 
   if (bot.dbId) {
