@@ -53,6 +53,9 @@ The `.replit` file maps only these ports externally:
 - `artifacts/orb-dashboard/src/pages/stats.tsx` — performance stats
 - `artifacts/orb-dashboard/src/pages/positions.tsx` — open positions (live Alpaca data)
 - `artifacts/orb-dashboard/src/pages/config.tsx` — bot config form (includes swarm + evolution settings)
+- `artifacts/orb-dashboard/src/pages/news.tsx` — Market News page (HackerNews top stories + market discussion, powered by AutoCLI)
+- `artifacts/api-server/src/lib/autoCli.ts` — AutoCLI wrapper (executes binary, fetches HackerNews top/search, market discussion)
+- `artifacts/api-server/src/routes/news.ts` — `/api/news/*` endpoints (GET /news/hackernews/top, /news/market, /news/search)
 
 ## Multi-Bot Swarm Architecture
 
@@ -80,6 +83,7 @@ Set in `.replit` under `[userenv.shared]`:
 
 Secrets (managed via Replit secrets):
 - `SESSION_SECRET` — express-session secret
+- `AUTOCLI_API_TOKEN` — AutoCLI cloud API token (from autocli.ai/profile)
 
 ## Bot Strategy (ORB)
 
