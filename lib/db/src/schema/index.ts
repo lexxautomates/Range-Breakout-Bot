@@ -47,6 +47,30 @@ export const insertTradeSchema = createInsertSchema(tradesTable).omit({ id: true
 export type InsertTrade = z.infer<typeof insertTradeSchema>;
 export type Trade = typeof tradesTable.$inferSelect;
 
+export const cryptoBotConfigsTable = pgTable("crypto_bot_configs", {
+  id: serial("id").primaryKey(),
+  symbol: text("symbol").notNull().default("BTC_USD"),
+  sessionWindowMinutes: integer("session_window_minutes").notNull().default(30),
+  sessionType: text("session_type").notNull().default("hourly"),
+  riskPercent: real("risk_percent").notNull().default(1.0),
+  rewardRiskRatio: real("reward_risk_ratio").notNull().default(2.0),
+  requireVolumeConfirmation: boolean("require_volume_confirmation").notNull().default(false),
+  volumeMultiplier: real("volume_multiplier").notNull().default(1.2),
+  trailingStopEnabled: boolean("trailing_stop_enabled").notNull().default(false),
+  trailingStopActivationR: real("trailing_stop_activation_r").notNull().default(1.0),
+  reEntryEnabled: boolean("re_entry_enabled").notNull().default(false),
+  maxOrbWidthPercent: real("max_orb_width_percent").notNull().default(5.0),
+  minOrbWidthPercent: real("min_orb_width_percent").notNull().default(0.1),
+  breakoutWindowMinutes: integer("breakout_window_minutes").notNull().default(360),
+  enableShorts: boolean("enable_shorts").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCryptoBotConfigSchema = createInsertSchema(cryptoBotConfigsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertCryptoBotConfig = z.infer<typeof insertCryptoBotConfigSchema>;
+export type CryptoBotConfig = typeof cryptoBotConfigsTable.$inferSelect;
+
 export const botConfigTable = pgTable("bot_config", {
   id: serial("id").primaryKey(),
   openingRangeMinutes: integer("opening_range_minutes").notNull().default(15),

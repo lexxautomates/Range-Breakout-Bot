@@ -1,5 +1,6 @@
 import { logger } from "./logger.js";
 import { alpaca, apiKey as alpacaKey, apiSecret as alpacaSecret, dataBaseUrl } from "./alpaca.js";
+import { CryptoDotComClient } from "./cryptocom.js";
 
 export type BrokerName = "alpaca" | "ibkr" | "cryptocom";
 
@@ -184,105 +185,67 @@ class IbkrBroker implements IBroker {
 }
 
 // ─── Crypto.com Broker ────────────────────────────────────────────────────────
-// Uses the Crypto.com Exchange API v1 (spot trading)
-// Docs: https://exchange-docs.crypto.com/exchange/v1/rest-ws/index.html
+// Uses CryptoDotComClient for full Exchange v1 API support
 
 class CryptoDotComBroker implements IBroker {
-  private apiKey: string;
-  private apiSecret: string;
-  private baseUrl: string;
+  private client: CryptoDotComClient;
 
   constructor(apiKey?: string, apiSecret?: string, baseUrl?: string) {
-    this.apiKey = apiKey || process.env.CRYPTOCOM_API_KEY || "";
-    this.apiSecret = apiSecret || process.env.CRYPTOCOM_API_SECRET || "";
-    this.baseUrl = baseUrl || "https://api.crypto.com/exchange/v1";
-  }
-
-  private async sign(method: string, id: number, params: Record<string, unknown>): Promise<string> {
-    const { createHmac } = await import("crypto");
-    const paramString = Object.keys(params)
-      .sort()
-      .map((k) => `${k}${params[k]}`)
-      .join("");
-    const sigPayload = `${method}${id}${this.apiKey}${paramString}${Date.now()}`;
-    return createHmac("sha256", this.apiSecret).update(sigPayload).digest("hex");
-  }
-
-  private async privateRequest<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    const id = Date.now();
-    const nonce = Date.now();
-    const sig = await this.sign(method, id, params);
-    const body = {
-      id,
-      method,
-      params,
-      api_key: this.apiKey,
-      sig,
-      nonce,
-    };
-    const resp = await fetch(`${this.baseUrl}/private/${method.replace("private/", "")}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!resp.ok) throw new Error(`Crypto.com error ${resp.status}: ${await resp.text()}`);
-    const data = (await resp.json()) as { result: T; code: number };
-    if (data.code !== 0) throw new Error(`Crypto.com API error code ${data.code}`);
-    return data.result;
+    this.client = new CryptoDotComClient(
+      apiKey || process.env.CRYPTOCOM_API_KEY || "",
+      apiSecret || process.env.CRYPTOCOM_API_SECRET || "",
+      baseUrl,
+    );
   }
 
   async getAccount(): Promise<AccountInfo> {
-    const result = await this.privateRequest<{
-      data: { accounts: Array<{ currency: string; available: number; balance: number }> };
-    }>("private/get-accounts", {});
-    const usd = result.data.accounts.find((a) => a.currency === "USD") ?? {
-      available: 0,
-      balance: 0,
-    };
-    return {
-      equity: usd.balance,
-      cash: usd.available,
-      buyingPower: usd.available,
-    };
+    try {
+      const accounts = await this.client.getAccounts("USD");
+      const usd = accounts.find((a) => a.currency === "USD") ?? {
+        available: "0",
+        balance: "0",
+      };
+      const available = parseFloat(usd.available);
+      const balance = parseFloat(usd.balance);
+      return { equity: balance, cash: available, buyingPower: available };
+    } catch {
+      try {
+        const balances = await this.client.getUserBalance();
+        const usd = balances.find(
+          (b) => b.currency === "USD" || b.currency === "USDT" || b.currency === "USDC",
+        ) ?? { available: "0", balance: "0" };
+        const available = parseFloat(usd.available);
+        const balance = parseFloat(usd.balance);
+        return { equity: balance, cash: available, buyingPower: available };
+      } catch {
+        return { equity: 0, cash: 0, buyingPower: 0 };
+      }
+    }
   }
 
   async placeMarketOrder(symbol: string, side: "buy" | "sell", qty: number): Promise<string | null> {
-    try {
-      const result = await this.privateRequest<{ order_id: string }>("private/create-order", {
-        instrument_name: symbol,
-        side: side === "buy" ? "BUY" : "SELL",
-        type: "MARKET",
-        quantity: qty,
-      });
-      return result.order_id ?? null;
-    } catch (err) {
-      logger.error({ err, broker: "cryptocom" }, "Failed to place Crypto.com order");
-      return null;
-    }
+    return this.client.createMarketOrder(symbol, side === "buy" ? "BUY" : "SELL", qty);
   }
 
   async closePosition(symbol: string): Promise<void> {
     try {
-      await this.privateRequest("private/close-position", { instrument_name: symbol });
+      await this.client.cancelAllOrders(symbol);
+      const positions = await this.client.getPositions(symbol);
+      const pos = positions.find((p) => p.instrument_name === symbol);
+      if (pos) {
+        const qty = Math.abs(parseFloat(pos.quantity));
+        if (qty > 0) {
+          const side = parseFloat(pos.quantity) > 0 ? "SELL" : "BUY";
+          await this.client.createMarketOrder(symbol, side, qty);
+        }
+      }
     } catch (err) {
-      logger.error({ err, broker: "cryptocom" }, "Failed to close Crypto.com position");
+      logger.error({ err, broker: "cryptocom", symbol }, "Failed to close Crypto.com position");
     }
   }
 
   async getPrice(symbol: string): Promise<number | null> {
-    try {
-      const resp = await fetch(`${this.baseUrl}/public/get-ticker?instrument_name=${symbol}`);
-      if (!resp.ok) return null;
-      const data = (await resp.json()) as { result: { data: Array<{ a: string; b: string }> } };
-      const ticker = data.result?.data?.[0];
-      if (!ticker) return null;
-      const ask = parseFloat(ticker.a ?? "0");
-      const bid = parseFloat(ticker.b ?? "0");
-      if (ask > 0 && bid > 0) return (ask + bid) / 2;
-      return ask || bid || null;
-    } catch {
-      return null;
-    }
+    return this.client.getMidPrice(symbol);
   }
 }
 
