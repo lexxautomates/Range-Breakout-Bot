@@ -4,6 +4,7 @@ import { ensureDefaultConfig } from "./lib/botEngine.js";
 import { startOrchestrator } from "./lib/orchestrator.js";
 
 const rawPort = process.env["PORT"];
+const host = process.env["HOST"] || "127.0.0.1";
 
 if (!rawPort) {
   throw new Error(
@@ -17,7 +18,7 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-app.listen(port, async (err) => {
+app.listen(port, host, async (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
@@ -32,5 +33,5 @@ app.listen(port, async (err) => {
 
   startOrchestrator();
 
-  logger.info({ port }, "Server listening");
+  logger.info({ host, port }, "Server listening");
 });
