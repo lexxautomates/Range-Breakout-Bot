@@ -16,24 +16,22 @@ import type { LlmConfig } from "../lib/llmAdvisor.js";
 
 const router = Router();
 
-function getClient(req: {
-  query: Record<string, unknown>;
+type ClientReq = {
   headers: Record<string, unknown>;
-}): CryptoDotComClient {
+};
+
+function getClient(req: ClientReq): CryptoDotComClient {
+  // IMPORTANT: do not accept credentials via query string; it leaks to logs/proxies.
   const apiKey =
-    (req.query["api_key"] as string) ||
-    (req.headers["x-cryptocom-api-key"] as string) ||
-    process.env.CRYPTOCOM_API_KEY ||
-    "";
+    (req.headers["x-cryptocom-api-key"] as string) || process.env.CRYPTOCOM_API_KEY || "";
   const apiSecret =
-    (req.query["api_secret"] as string) ||
     (req.headers["x-cryptocom-api-secret"] as string) ||
     process.env.CRYPTOCOM_API_SECRET ||
     "";
   return new CryptoDotComClient(apiKey, apiSecret);
 }
 
-// ─── Public Market Data ────────────────────────────────────────────────────────
+// ─── Public Market Data ───────────────────────────────────────────────────────
 
 router.get("/crypto/instruments", async (req, res) => {
   const client = getClient(req as never);
@@ -113,7 +111,7 @@ router.get("/crypto/trades/:instrument", async (req, res) => {
   }
 });
 
-// ─── Private Account ────────────────────────────────────────────────────────────
+// ─── Private Account ─────────────────────────────────────────────────────────
 
 router.get("/crypto/account", async (req, res) => {
   const client = getClient(req as never);
@@ -160,31 +158,19 @@ router.get("/crypto/orders/history", async (req, res) => {
   }
 });
 
-router.get("/crypto/orders/:orderId", async (req, res) => {
-  const client = getClient(req as never);
-  try {
-    const order = await client.getOrderDetail(req.params["orderId"]!);
-    if (!order) {
-      res.status(404).json({ error: "Order not found" });
-      return;
-    }
-    res.json(order);
-  } catch (err) {
-    res.status(500).json({ error: String(err) });
-  }
-});
-
-// ─── Private Trading ────────────────────────────────────────────────────────────
-
 router.post("/crypto/orders/market", async (req, res) => {
   const client = getClient(req as never);
   const { instrument, side, quantity } = req.body ?? {};
   if (!instrument || !side || !quantity) {
-    res.status(400).json({ error: "Missing instrument, side, or quantity" });
+    res.status(400).json({ error: "Missing required fields" });
     return;
   }
   try {
-    const orderId = await client.createMarketOrder(instrument, side, Number(quantity));
+    const orderId = await client.createMarketOrder(
+      instrument,
+      side,
+      Number(quantity),
+    );
     res.json({ orderId });
   } catch (err) {
     res.status(500).json({ error: String(err) });
@@ -193,7 +179,7 @@ router.post("/crypto/orders/market", async (req, res) => {
 
 router.post("/crypto/orders/limit", async (req, res) => {
   const client = getClient(req as never);
-  const { instrument, side, quantity, price, time_in_force, post_only } = req.body ?? {};
+  const { instrument, side, quantity, price } = req.body ?? {};
   if (!instrument || !side || !quantity || !price) {
     res.status(400).json({ error: "Missing required fields" });
     return;
@@ -204,9 +190,6 @@ router.post("/crypto/orders/limit", async (req, res) => {
       side,
       Number(quantity),
       Number(price),
-      time_in_force,
-      undefined,
-      post_only,
     );
     res.json({ orderId });
   } catch (err) {
@@ -305,7 +288,7 @@ router.get("/crypto/fee-rate", async (req, res) => {
   }
 });
 
-// ─── Crypto Bot Management ────────────────────────────────────────────────────
+// ─── Crypto Bot Management ───────────────────────────────────────────────────
 
 router.get("/crypto/bots", (_req, res) => {
   const bots = getCryptoBots();
@@ -329,12 +312,10 @@ router.post("/crypto/bots/start", async (req, res) => {
   };
 
   const apiKey =
-    body.apiKey ||
     (req.headers["x-cryptocom-api-key"] as string) ||
     process.env.CRYPTOCOM_API_KEY ||
     "";
   const apiSecret =
-    body.apiSecret ||
     (req.headers["x-cryptocom-api-secret"] as string) ||
     process.env.CRYPTOCOM_API_SECRET ||
     "";
@@ -353,22 +334,25 @@ router.post("/crypto/bots/start", async (req, res) => {
   try {
     const state = startCryptoBot({ config, client, llmConfig });
 
-    await db.insert(cryptoBotConfigsTable).values({
-      symbol: config.symbol,
-      sessionWindowMinutes: config.sessionWindowMinutes,
-      sessionType: config.sessionType,
-      riskPercent: config.riskPercent,
-      rewardRiskRatio: config.rewardRiskRatio,
-      requireVolumeConfirmation: config.requireVolumeConfirmation,
-      volumeMultiplier: config.volumeMultiplier,
-      trailingStopEnabled: config.trailingStopEnabled,
-      trailingStopActivationR: config.trailingStopActivationR,
-      reEntryEnabled: config.reEntryEnabled,
-      maxOrbWidthPercent: config.maxOrbWidthPercent,
-      minOrbWidthPercent: config.minOrbWidthPercent,
-      breakoutWindowMinutes: config.breakoutWindowMinutes,
-      enableShorts: config.enableShorts,
-    }).catch((e) => logger.warn({ e }, "Failed to save crypto bot config"));
+    await db
+      .insert(cryptoBotConfigsTable)
+      .values({
+        symbol: config.symbol,
+        sessionWindowMinutes: config.sessionWindowMinutes,
+        sessionType: config.sessionType,
+        riskPercent: config.riskPercent,
+        rewardRiskRatio: config.rewardRiskRatio,
+        requireVolumeConfirmation: config.requireVolumeConfirmation,
+        volumeMultiplier: config.volumeMultiplier,
+        trailingStopEnabled: config.trailingStopEnabled,
+        trailingStopActivationR: config.trailingStopActivationR,
+        reEntryEnabled: config.reEntryEnabled,
+        maxOrbWidthPercent: config.maxOrbWidthPercent,
+        minOrbWidthPercent: config.minOrbWidthPercent,
+        breakoutWindowMinutes: config.breakoutWindowMinutes,
+        enableShorts: config.enableShorts,
+      })
+      .catch((e) => logger.warn({ e }, "Failed to save crypto bot config"));
 
     res.json(state);
   } catch (err) {
@@ -387,7 +371,10 @@ router.post("/crypto/bots/:id/stop", (req, res) => {
 
 router.get("/crypto/bot-configs", async (_req, res) => {
   try {
-    const configs = await db.select().from(cryptoBotConfigsTable).orderBy(cryptoBotConfigsTable.createdAt);
+    const configs = await db
+      .select()
+      .from(cryptoBotConfigsTable)
+      .orderBy(cryptoBotConfigsTable.createdAt);
     res.json(configs);
   } catch (err) {
     res.status(500).json({ error: String(err) });
