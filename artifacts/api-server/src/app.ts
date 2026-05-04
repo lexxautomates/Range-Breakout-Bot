@@ -4,6 +4,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { requireApiAuth } from "./middleware/auth.js";
+import { rateLimit } from "./middleware/rateLimit.js";
 
 const app: Express = express();
 
@@ -42,7 +43,14 @@ app.use(
   ),
 );
 
-app.use(express.json());
+app.use(
+  rateLimit({
+    windowMs: 60_000,
+    max: 120,
+  }),
+);
+
+app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // Protect all API routes (bots, config, broker endpoints, etc.)
