@@ -8,6 +8,8 @@ export interface LlmConfig {
   apiKey?: string;
   baseUrl?: string;
   temperature?: number;
+  // If set, advice must meet or exceed this confidence to approve.
+  confidenceThreshold?: number;
 }
 
 export interface TradeContext {
@@ -75,6 +77,14 @@ Respond in this exact JSON format with no other text:
 }`;
 }
 
+function normalizeAdvice(raw: unknown): LlmAdvice {
+  const obj = raw as Partial<LlmAdvice>;
+  const approved = Boolean(obj?.approved);
+  const confidence = Math.max(0, Math.min(1, Number(obj?.confidence) || 0));
+  const reasoning = String(obj?.reasoning || "").trim();
+  return { approved, confidence, reasoning };
+}
+
 async function callClaude(prompt: string, cfg: LlmConfig): Promise<LlmAdvice> {
   const model = cfg.model || "claude-3-5-haiku-20241022";
   const resp = await fetch("https://api.anthropic.com/v1/messages", {
@@ -94,7 +104,7 @@ async function callClaude(prompt: string, cfg: LlmConfig): Promise<LlmAdvice> {
   if (!resp.ok) throw new Error(`Claude API error ${resp.status}: ${await resp.text()}`);
   const data = (await resp.json()) as { content: Array<{ text: string }> };
   const text = data.content[0]?.text ?? "{}";
-  return JSON.parse(text) as LlmAdvice;
+  return normalizeAdvice(JSON.parse(text));
 }
 
 async function callOpenRouter(prompt: string, cfg: LlmConfig): Promise<LlmAdvice> {
@@ -116,7 +126,7 @@ async function callOpenRouter(prompt: string, cfg: LlmConfig): Promise<LlmAdvice
   if (!resp.ok) throw new Error(`OpenRouter error ${resp.status}: ${await resp.text()}`);
   const data = (await resp.json()) as { choices: Array<{ message: { content: string } }> };
   const text = data.choices[0]?.message.content ?? "{}";
-  return JSON.parse(text) as LlmAdvice;
+  return normalizeAdvice(JSON.parse(text));
 }
 
 async function callOllama(prompt: string, cfg: LlmConfig): Promise<LlmAdvice> {
@@ -137,13 +147,12 @@ async function callOllama(prompt: string, cfg: LlmConfig): Promise<LlmAdvice> {
   const raw = data.response ?? "{}";
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error(`No JSON in Ollama response: ${raw}`);
-  return JSON.parse(jsonMatch[0]) as LlmAdvice;
+  return normalizeAdvice(JSON.parse(jsonMatch[0]));
 }
 
-export async function askLlmAdvisor(
-  ctx: TradeContext,
-  cfg: LlmConfig,
-): Promise<LlmAdvice> {
+export async function askLlmAdvisor(ctx: TradeContext, cfg: LlmConfig): Promise<LlmAdvice> {
+  const threshold = cfg.confidenceThreshold ?? 0.6;
+
   if (cfg.provider === "none") {
     return { approved: true, confidence: 1.0, reasoning: "AI advisor disabled — auto-approve" };
   }
@@ -159,20 +168,26 @@ export async function askLlmAdvisor(
     } else if (cfg.provider === "ollama") {
       advice = await callOllama(prompt, cfg);
     } else {
-      return { approved: true, confidence: 1.0, reasoning: "Unknown provider — auto-approve" };
+      return { approved: false, confidence: 0, reasoning: "Unknown provider — reject" };
     }
 
-    advice.approved = Boolean(advice.approved);
-    advice.confidence = Math.max(0, Math.min(1, Number(advice.confidence) || 0.5));
-    advice.reasoning = String(advice.reasoning || "");
+    // Enforce confidence threshold
+    if (advice.confidence < threshold) {
+      advice = {
+        approved: false,
+        confidence: advice.confidence,
+        reasoning: advice.reasoning || `Confidence ${advice.confidence.toFixed(2)} < ${threshold.toFixed(2)}`,
+      };
+    }
 
     logger.info(
-      { provider: cfg.provider, symbol: ctx.symbol, direction: ctx.direction, advice },
+      { provider: cfg.provider, symbol: ctx.symbol, direction: ctx.direction, advice, threshold },
       "LLM advisor decision",
     );
+
     return advice;
   } catch (err) {
-    logger.error({ err, provider: cfg.provider }, "LLM advisor error — defaulting to approve");
-    return { approved: true, confidence: 0.5, reasoning: `LLM error: ${String(err)}` };
+    logger.error({ err, provider: cfg.provider }, "LLM advisor error — rejecting trade");
+    return { approved: false, confidence: 0, reasoning: `LLM error: ${String(err)}` };
   }
 }
