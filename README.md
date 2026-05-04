@@ -156,6 +156,7 @@ Integrated with [AutoCLI](https://autocli.dev) (binary v0.3.7) for real-time mar
 
 | Variable | Required | Description |
 |----------|----------|-------------|
+| `API_TOKEN` | Yes (recommended) | Bearer token required for all `/api/*` routes (non-localhost access is blocked if missing) |
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
 | `SESSION_SECRET` | Yes | Express session secret |
 | `ALPACA_API_KEY` | Yes | Alpaca paper trading API key |
@@ -166,6 +167,8 @@ Integrated with [AutoCLI](https://autocli.dev) (binary v0.3.7) for real-time mar
 | `ANTHROPIC_API_KEY` | If using Anthropic advisor | Anthropic API key |
 | `GOOGLE_API_KEY` | If using Gemini advisor | Google AI API key |
 | `AUTOCLI_API_TOKEN` | For news feed | AutoCLI auth token |
+| `DASHBOARD_ORIGIN` | Recommended | If set, only this browser origin may call the API (CORS) |
+| `HOST` | Optional | API bind address (default `127.0.0.1`; set `0.0.0.0` for LAN/Docker) |
 
 Crypto.com credentials can also be passed per-request via `x-cryptocom-api-key` and `x-cryptocom-api-secret` HTTP headers.
 
